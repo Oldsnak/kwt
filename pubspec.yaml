@@ -1,0 +1,92 @@
+name: kwt
+description: "Kashmir Wipers Tradors App"
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+
+  cupertino_icons: ^1.0.8
+  curved_navigation_bar: ^1.0.6
+  percent_indicator: ^4.2.5
+  provider: ^6.1.5
+  iconsax_flutter: ^1.0.1
+  get: ^4.7.2
+  http: ^1.4.0
+  intl: ^0.20.2
+  logger: ^2.6.0
+  url_launcher: ^6.3.2
+  get_storage: ^2.1.1
+  carousel_slider: ^5.1.1
+  flutter_native_splash: ^2.4.6
+  smooth_page_indicator: ^1.2.1
+  readmore: ^3.0.0
+  flutter_rating_bar: ^4.0.1
+  supabase_flutter: ^2.10.3
+  flutter_dotenv: ^6.0.0
+  qr_code_scanner_plus: ^2.0.14
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  device_info_plus: ^12.2.0
+  barcode_widget: ^2.0.4
+  barcode: ^2.2.9
+  mobile_scanner: ^7.1.3
+  path_provider: ^2.1.5
+  permission_handler: ^12.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: assets/images/app icon.png
+
+
+flutter:
+
+  uses-material-design: true
+
+  assets:
+    - .env
+    - assets/images/
+    - assets/images/on_boarding_images/
+    - assets/icons/
+    - assets/icons/categories/
+    - assets/logos/
+    - assets/images/banners/
+    - assets/images/products/
+    - assets/images/user/
+    - assets/images/reviews/
+    - assets/icons/payment_methods/
+  fonts:
+    - family: Inovation
+      fonts:
+        - asset: assets/fonts/Inovation.ttf
+
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+
