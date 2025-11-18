@@ -19,33 +19,11 @@ class DashboardCategories extends StatelessWidget {
 
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        // child: Row(
-        //   children: [
-        //     _CategoryChip(
-        //       label: 'All',
-        //       isSelected: selectedId == null,
-        //       onTap: () {
-        //         categoryController.selectCategory(null);
-        //         productController.filterByCategory(null);
-        //       },
-        //     ),
-        //     ...categories.map(
-        //           (c) => _CategoryChip(
-        //         label: c.name,
-        //         isSelected: selectedId == c.id,
-        //         onTap: () {
-        //           categoryController.selectCategory(c.id);
-        //           productController.filterByCategory(c.id);
-        //         },
-        //       ),
-        //     ),
-        //   ],
-        // ),
-
         child: Container(
           width: 1750,
           child: Wrap(
             children: [
+              /// ALL category
               _CategoryChip(
                 label: 'All',
                 isSelected: selectedId == null,
@@ -54,16 +32,18 @@ class DashboardCategories extends StatelessWidget {
                   productController.filterByCategory(null);
                 },
               ),
-              ...categories.map(
-                    (c) => _CategoryChip(
+
+              /// REAL CATEGORIES
+              ...categories.map((c) {
+                return _CategoryChip(
                   label: c.name,
                   isSelected: selectedId == c.id,
                   onTap: () {
                     categoryController.selectCategory(c.id);
                     productController.filterByCategory(c.id);
                   },
-                ),
-              ),
+                );
+              }).toList(),
             ],
           ),
         ),

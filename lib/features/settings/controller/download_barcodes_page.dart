@@ -1,12 +1,15 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:barcode/barcode.dart';
+import 'package:barcode_image/barcode_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:kwt/app/theme/colors.dart';
+
 
 class DownloadBarcodesPage extends StatefulWidget {
   const DownloadBarcodesPage({super.key});
@@ -17,27 +20,17 @@ class DownloadBarcodesPage extends StatefulWidget {
 
 class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
   final SupabaseClient _client = Supabase.instance.client;
+
   bool isDownloading = false;
   int downloaded = 0;
   int skipped = 0;
 
-  Future<bool> _ensureStoragePermission() async {
+  Future<bool> _ensurePermission() async {
     if (!Platform.isAndroid) return true;
 
-    // ✅ Android 13+ uses different permission types
-    final manage = await Permission.manageExternalStorage.request();
-    if (manage.isGranted) return true;
+    var status = await Permission.storage.request();
+    if (status.isGranted) return true;
 
-    final storage = await Permission.storage.request();
-    if (storage.isGranted) return true;
-
-    final photos = await Permission.photos.request();
-    if (photos.isGranted) return true;
-
-    final videos = await Permission.videos.request();
-    if (videos.isGranted) return true;
-
-    // If all denied
     await openAppSettings();
     return false;
   }
@@ -46,59 +39,71 @@ class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
     setState(() => isDownloading = true);
 
     try {
-      final granted = await _ensureStoragePermission();
-      if (!granted) {
-        Get.snackbar("Permission Denied", "Cannot save barcodes without permission");
-        setState(() => isDownloading = false);
+      if (!await _ensurePermission()) {
+        Get.snackbar("Permission Required", "Cannot save barcodes");
         return;
       }
 
-      // Create directory
+      // Save directory
       final dir = Directory("/storage/emulated/0/Download/KWT_Barcodes");
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
+      if (!await dir.exists()) await dir.create(recursive: true);
 
-      // Fetch all products
-      final products = await _client.from('products').select('id, name, barcode');
+      // Fetch products
+      final products =
+      await _client.from("products").select("id, name, barcode");
 
       if (products.isEmpty) {
-        Get.snackbar("No Products", "No products found in database");
-        setState(() => isDownloading = false);
+        Get.snackbar("No Products", "No products found");
         return;
       }
 
-      final barcodeGenerator = Barcode.code128();
+      final barcode = Barcode.code128();
 
-      for (final product in products) {
-        final code = product['barcode'];
+      for (final p in products) {
+        final code = p["barcode"];
         if (code == null || code.toString().isEmpty) continue;
 
-        final filePath = "${dir.path}/${code.toString()}.png";
-        final file = File(filePath);
+        final path = "${dir.path}/$code.png";
+        final file = File(path);
 
-        // Skip if already exists
         if (await file.exists()) {
           skipped++;
           continue;
         }
 
-        // Generate barcode image
-        final svg = barcodeGenerator.toSvg(code, width: 300, height: 120);
-        final bytes = Uint8List.fromList(svg.codeUnits);
+        // Create blank image (white background)
+        final img.Image canvas =
+        img.Image(width: 600, height: 200); // RGB image
+        img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
 
-        await file.writeAsBytes(bytes);
+        // Draw barcode on image
+        drawBarcode(
+          canvas,
+          barcode,
+          code.toString(),
+          font: img.arial24,
+          x: 40,
+          y: 20,
+          width: 520,
+          height: 140,
+        );
+
+        // Convert to PNG
+        final Uint8List pngBytes = Uint8List.fromList(img.encodePng(canvas));
+
+        // Save file
+        await file.writeAsBytes(pngBytes);
         downloaded++;
       }
 
       Get.snackbar(
-        "Download Complete",
-        "$downloaded new barcodes saved, $skipped skipped.",
+        "Done",
+        "$downloaded barcodes saved, $skipped skipped.",
         backgroundColor: SColors.primary,
         colorText: Colors.white,
       );
     } catch (e) {
-      Get.snackbar("Error", "Failed to download barcodes: $e");
+      Get.snackbar("Error", e.toString());
     } finally {
       setState(() => isDownloading = false);
     }
@@ -114,17 +119,18 @@ class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
           children: const [
             CircularProgressIndicator(),
             SizedBox(height: 20),
-            Text("Downloading barcodes..."),
+            Text("Downloading..."),
           ],
         )
             : ElevatedButton.icon(
+          onPressed: _downloadAllBarcodes,
           icon: const Icon(Icons.download),
           label: const Text("Download All Barcodes"),
           style: ElevatedButton.styleFrom(
             backgroundColor: SColors.primary,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 24, vertical: 14),
           ),
-          onPressed: _downloadAllBarcodes,
         ),
       ),
     );

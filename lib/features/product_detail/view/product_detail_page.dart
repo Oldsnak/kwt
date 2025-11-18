@@ -1,268 +1,204 @@
+// lib/features/product_detail/view/product_detail_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:percent_indicator/circular_percent_indicator.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:kwt/app/theme/colors.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
-import 'package:kwt/features/stock/view/add_stock_page.dart';
+import 'package:kwt/widgets/custom_shapes/containers/glossy_container.dart';
 
-class ProductDetailPage extends StatefulWidget {
+import '../../../app/theme/colors.dart';
+import '../../../core/controllers/stock_controller.dart';
+import '../../../core/models/product_model.dart';
+import '../../stock/view/add_stock_page.dart';
+
+class ProductDetailPage extends StatelessWidget {
   final String productId;
-  final String name;
-  final int stockQuantity;
-  final double sellingRate;
-  final double totalProfit;
 
-  const ProductDetailPage({
-    super.key,
-    required this.productId,
-    required this.name,
-    required this.stockQuantity,
-    required this.sellingRate,
-    required this.totalProfit,
-  });
+  ProductDetailPage({super.key, required this.productId});
 
-  @override
-  State<ProductDetailPage> createState() => _ProductDetailPageState();
-}
-
-class _ProductDetailPageState extends State<ProductDetailPage> {
-  final SupabaseClient _client = Supabase.instance.client;
-  final RxList<Map<String, dynamic>> stockEntries = <Map<String, dynamic>>[].obs;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchStockEntries();
-  }
-
-  Future<void> _fetchStockEntries() async {
-    try {
-      // 1️⃣ Fetch stock history
-      final response = await _client
-          .from('stock_entries')
-          .select()
-          .eq('product_id', widget.productId)
-          .order('received_date', ascending: false);
-
-      final List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(response);
-
-      // 2️⃣ If there’s no stock history, create one record using product info
-      if (data.isEmpty) {
-        final product = await _client
-            .from('products')
-            .select()
-            .eq('id', widget.productId)
-            .single();
-
-        data.add({
-          'received_date': product['created_at'],
-          'quantity': product['stock_quantity'] ?? 0,
-          'selling_rate': product['selling_rate'] ?? 0,
-        });
-      }
-
-      stockEntries.assignAll(data);
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to load stock history: $e');
-    }
-  }
+  final StockController controller = Get.put(StockController());
 
   @override
   Widget build(BuildContext context) {
     final bool dark = SHelperFunctions.isDarkMode(context);
-
-    // Dynamic percentage logic (temporary based on available stock)
-    final percent = (widget.stockQuantity > 0 ? widget.stockQuantity / (widget.stockQuantity + 1) : 0.0)
-        .clamp(0.0, 1.0);
+    
+    controller.loadStockHistory(productId); // Load on page open
 
     return Scaffold(
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: SSizes.defaultSpace),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: SSizes.appBarHeight),
 
-              // 🔵 Circular Percent Indicator
-              CircularPercentIndicator(
-                radius: 70,
-                lineWidth: 15,
-                backgroundColor: dark ? SColors.darkGrey : Colors.grey.shade300,
-                progressColor: SColors.primary,
-                percent: percent,
-                center: Column(
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: dark ? SColors.darkOptional : SColors.primary,
+        foregroundColor: dark ? SColors.primary : Colors.white,
+        tooltip: "Add new Stock",
+        onPressed: () {
+          Get.to(() => AddStockPage(productId: productId))!
+              .then((_) => controller.loadStockHistory(productId));
+        },
+        child: const Icon(Icons.add,size: 35),
+      ),
+
+      body: Obx(() {
+        if (controller.isLoadingHistory.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final product = controller.product.value;
+        final stockList = controller.stockHistory;
+
+        if (product == null) {
+          return const Center(child: Text("Product not found."));
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // --------------------------------------------------------------
+            // PRODUCT SUMMARY CARD
+            // --------------------------------------------------------------
+            SizedBox(height: SSizes.appBarHeight,),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: SSizes.defaultSpace),
+              child: GlossyContainer(
+                child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      widget.stockQuantity.toString(),
-                      style: const TextStyle(
-                        color: SColors.primary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 30,
-                      ),
+                      product.name.toUpperCase(),
+                      style: Theme.of(context).textTheme.headlineMedium
+                      ?.copyWith(fontWeight: FontWeight.bold, color: SColors.primary),
                     ),
-                    Text(
-                      'Price: ${widget.sellingRate.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        color: SColors.primary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                    SizedBox(height: SSizes.sm,),
+                    Divider(color: dark ? SColors.darkGrey : SColors.primary, thickness: 1),
+                    SizedBox(height: SSizes.sm,),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: SSizes.sm),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text("Category:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                              Text(product.categoryName ?? '---',textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text("Barcode:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                              Text(product.barcode,textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text("Stock:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                              Text("${product.stockQuantity}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text("Price:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                              Text("${product.sellingRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text("Purchase Rate:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                              Text("${product.purchaseRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                circularStrokeCap: CircularStrokeCap.round,
               ),
+            ),
 
-              const SizedBox(height: SSizes.spaceBtwItems),
+            const SizedBox(height: SSizes.xl),
 
-              // 🔵 Product Info
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.name,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium!
-                          .apply(color: SColors.primary)),
-                  Text('Profit: ${widget.totalProfit}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium!
-                          .apply(color: SColors.primary, fontWeightDelta: 2)),
-                ],
-              ),
+            // --------------------------------------------------------------
+            // STOCK HISTORY TITLE
+            // --------------------------------------------------------------
+            const Text(
+              "Stock History",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: SColors.primary),
+            ),
 
-              const SizedBox(height: SSizes.spaceBtwSections),
+            // const SizedBox(height: 10),
 
-              // 🔵 Stock Entries
-              Obx(() {
-                if (stockEntries.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text('No stock history found.'),
+            // --------------------------------------------------------------
+            // STOCK HISTORY LIST
+            // --------------------------------------------------------------
+            if (stockList.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 20),
+                  child: Text("No stock entries found."),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: stockList.length,
+                itemBuilder: (context, index) {
+                  final entry = stockList[index];
+
+                  return GlossyContainer(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          "${entry.receivedDate.day}-"
+                          "${entry.receivedDate.month}-"
+                          "${entry.receivedDate.year}",
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(fontWeight: FontWeight.bold, color: SColors.primary),
+                        ),
+                        SizedBox(height: SSizes.sm,),
+                        Divider(color: dark ? SColors.darkGrey : SColors.primary, thickness: 1),
+                        SizedBox(height: SSizes.sm,),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: SSizes.sm),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("Quantity:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                                  Text("${entry.quantity}" ?? '---',textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                                ],
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("Purchase:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                                  Text("${entry.purchaseRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                                ],
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("Selling:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
+                                  Text("${entry.sellingRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   );
-                }
 
-                return Column(
-                  children: stockEntries.map((entry) {
-                    final date = DateTime.parse(entry['received_date']);
-                    final formatted =
-                        "${date.day.toString().padLeft(2, '0')}-${_monthName(date.month)}, ${date.year}";
-                    return _StockDetailCard(
-                      date: formatted,
-                      itemCount: entry['quantity'] ?? 0,
-                      price: entry['selling_rate'] ?? 0,
-                    );
-                  }).toList(),
-                );
-              }),
-
-              const SizedBox(height: SSizes.appBarHeight * 2),
-            ],
-          ),
-        ),
-      ),
-
-      // 🔵 Floating Action Button
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: dark ? SColors.darkSecondary : SColors.primary,
-        foregroundColor: dark ? SColors.primary : Colors.white,
-        tooltip: "Add new Stock",
-        onPressed: () {
-          Get.to(() => AddStockPage(productId: widget.productId));
-        },
-        child: const Icon(Icons.add, size: 35),
-      ),
-    );
-  }
-
-  String _monthName(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    return months[month - 1];
-  }
-}
-
-class _StockDetailCard extends StatelessWidget {
-  final String date;
-  final int itemCount;
-  final double price;
-
-  const _StockDetailCard({
-    required this.date,
-    required this.itemCount,
-    required this.price,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bool dark = SHelperFunctions.isDarkMode(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(SSizes.md),
-      margin: const EdgeInsets.only(bottom: SSizes.spaceBtwItems),
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF1E1E1E) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(2, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(date,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge!
-                  .apply(color: SColors.primary, fontWeightDelta: 2)),
-          const Divider(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("Item Count:",
-                  style: TextStyle(
-                      color: Colors.grey.shade400,
-                      fontWeight: FontWeight.bold)),
-              Text("$itemCount",
-                  style: const TextStyle(
-                      color: SColors.primary, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("Price:",
-                  style: TextStyle(
-                      color: Colors.grey.shade400,
-                      fontWeight: FontWeight.bold)),
-              Text("$price",
-                  style: const TextStyle(
-                      color: SColors.primary, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ],
-      ),
+                },
+              ),
+            SizedBox(height: SSizes.appBarHeight,)
+          ],
+        );
+      }),
     );
   }
 }

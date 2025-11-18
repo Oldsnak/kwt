@@ -1,3 +1,5 @@
+// lib/features/dashboard/view/dashboard_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:kwt/app/theme/colors.dart';
@@ -8,6 +10,7 @@ import 'package:kwt/widgets/custom_appbar/custom_appbar.dart';
 import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.dart';
 import 'package:kwt/widgets/layouts/grid_layout.dart';
 import 'package:kwt/widgets/products/product_cards/product_card_vertical.dart';
+import '../../../core/controllers/notification_controller.dart';
 import '../../product_detail/view/product_detail_page.dart';
 import 'widgets/dashboard_categories.dart';
 
@@ -21,84 +24,106 @@ class DashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final NotificationController notificationController = Get.put(NotificationController());
 
     return Scaffold(
-      // backgroundColor: isDark ? SColors.dark : Colors.black,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            /// 🔼 HEADER AREA (green background + search + categories)
+            /// 🔼 HEADER: Search + Categories
             PrimaryHeaderContainer(
               child: Padding(
                 padding: const EdgeInsets.only(
                   left: SSizes.defaultSpace,
-                  right: SSizes.defaultSpace,
                   bottom: SSizes.spaceBtwSections,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const CustomAppbar(),
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        right: SSizes.defaultSpace,
+                        bottom: SSizes.spaceBtwItems,
 
-                    const SizedBox(height: SSizes.spaceBtwItems),
-
-                    /// 🔍 Search box
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: SSizes.md, vertical: SSizes.xs),
-                      decoration: BoxDecoration(
-                        color: Colors.black87,
-                        borderRadius: BorderRadius.circular(SSizes.productImageRadius),
-                        border: Border.all(color: SColors.grey)
                       ),
-                      child: Row(
+                      child: Column(
                         children: [
-                          const Icon(Icons.search, color: Colors.white70),
-                          const SizedBox(width: SSizes.sm),
-                          Expanded(
-                            child: TextField(
-                              controller: _searchCtrl,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: const InputDecoration(
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                hintText: 'Search in Store',
-                                hintStyle:
-                                TextStyle(color: Colors.white54),
-                              ),
-                              onChanged: productController.updateSearch,
+                          const CustomAppbar(),
+                          const SizedBox(height: SSizes.spaceBtwItems),
+
+                          /// 🔍 SEARCH BOX
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: SSizes.md, vertical: SSizes.xs),
+                            decoration: BoxDecoration(
+                                color: Colors.black87,
+                                borderRadius: BorderRadius.circular(SSizes.productImageRadius),
+                                border: Border.all(color: SColors.grey)),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.search, color: Colors.white70),
+                                const SizedBox(width: SSizes.sm),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _searchCtrl,
+                                    style: const TextStyle(color: Colors.white),
+                                    decoration: const InputDecoration(
+                                      border: InputBorder.none,
+                                      focusedBorder: InputBorder.none,
+                                      errorBorder: InputBorder.none,
+                                      hintText: 'Search in Store',
+                                      hintStyle: TextStyle(color: Colors.white54),
+                                    ),
+                                    onChanged: (query) {
+                                      productController.updateSearch(query);
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
 
-                    const SizedBox(height: SSizes.spaceBtwItems),
+                    // const SizedBox(height: SSizes.spaceBtwItems),
 
-                    /// 🏷 Categories pills
+                    /// 🏷 CATEGORY TITLE
                     const Text(
                       "Categories",
                       style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 18, color: SColors.dark),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: SColors.dark,
+                      ),
                     ),
-                    const SizedBox(height: SSizes.sm),
-                    DashboardCategories(),
 
+                    const SizedBox(height: SSizes.sm),
+
+                    /// CATEGORY LISTING
+                    DashboardCategories(),
                   ],
                 ),
               ),
             ),
 
-            /// 🔽 BODY: product cards grid (same as purana UI)
+            /// 🔽 PRODUCT GRID LIST
             Padding(
               padding: const EdgeInsets.all(SSizes.defaultSpace),
               child: Obx(() {
                 final products = productController.filteredProducts;
+
+                if (productController.isLoading.value) {
+                  return const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Center(child: CircularProgressIndicator(color: Colors.white)),
+                  );
+                }
+
                 if (products.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
+                  return const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Center(
                       child: Text(
                         'No products found.',
                         style: TextStyle(color: Colors.white),
@@ -112,32 +137,24 @@ class DashboardPage extends StatelessWidget {
                   itemBuilder: (_, index) {
                     final p = products[index];
 
-                    // yahan abhi profit & totalStock ko simple set kiya hai.
-                    // Later hum Sales/Stock se real numbers nikal lenge.
+                    /// SAFE values from ProductModel
                     final remaining = p.stockQuantity ?? 0;
-                    final totalStock =
-                    remaining == 0 ? 1 : remaining; // avoid /0
-                    final price = p.sellingRate?.toInt() ?? 0;
-                    const totalProfit = 0;
+                    final totalStock = remaining == 0 ? 1 : remaining;
+                    final price = p.sellingRate?.round() ?? 0;
 
                     return ProductCardVertical(
                       remaining: remaining,
                       total_stock: totalStock,
                       price: price,
-                      name: p.name,
-                      total_profit: totalProfit,
-                      onTap: () => Get.to(() => ProductDetailPage(
-                        productId: p.id,
-                        name: p.name,
-                        stockQuantity: p.stockQuantity ?? 0,
-                        sellingRate: p.sellingRate?.toDouble() ?? 0.0,
-                        totalProfit: 0, // you can replace later with real calculation
-                      )),
+                      name: p.name ?? "",
+                      total_profit: 0, // future logic for real profit calculation
+                      onTap: () => Get.to(() => ProductDetailPage(productId: p.id!)),
                     );
                   },
                 );
               }),
             ),
+            SizedBox(height: SSizes.appBarHeight,)
           ],
         ),
       ),

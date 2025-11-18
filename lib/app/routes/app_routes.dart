@@ -4,7 +4,6 @@ class AppRoutes {
   static const String home = '/home';
   static const String dashboard = '/dashboard';
   static const String sell = '/sell';
-  static const String checkout = '/checkout';
   static const String salesBill = '/sales_bill';
   static const String settings = '/settings';
   static const String addItem = '/add_item';

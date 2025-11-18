@@ -58,9 +58,9 @@ class SettingsPage extends StatelessWidget {
                   /// MENU ITEMS
                   SettingsMenuTile(
                     icon: Iconsax.shopping_cart,
-                    title: "Add New Item or Category",
+                    title: "Add New Item",
                     subTitle: "Add new item in store",
-                    onTap: () => Get.to(() => const AddItemPage()),
+                    onTap: () => Get.to(() => AddItemPage()),
                   ),
                   SettingsMenuTile(
                     icon: Iconsax.bank,
@@ -116,6 +116,8 @@ class SettingsPage extends StatelessWidget {
                         Get.changeThemeMode(
                             value ? ThemeMode.dark : ThemeMode.light);
                       },
+                      activeColor: SColors.dark,              // thumb color when ON
+                      activeTrackColor: SColors.darkGrey,
                     ),
                   ),
                 ],

@@ -1,51 +1,66 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:kwt/app/theme/colors.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
+import 'package:kwt/core/services/product_scan_service.dart';
+import 'package:kwt/core/models/product_model.dart';
 
 class AddItemPage extends StatefulWidget {
+  /// existingItem: jo bill me already add ho chuka hai (edit case)
   final Map<String, dynamic>? existingItem;
+
+  /// scannedProduct: SellPage se aane wala product row (products table se)
   final Map<String, dynamic>? scannedProduct;
+
+  /// fromScan: agar SellPage ke scanner se aya ho
   final bool fromScan;
 
   const AddItemPage({
     super.key,
     this.existingItem,
     this.scannedProduct,
-    this.fromScan = false, // ✅ this ensures it's never null
+    this.fromScan = false,
   });
 
   @override
   State<AddItemPage> createState() => _AddItemPageState();
 }
 
-
 class _AddItemPageState extends State<AddItemPage> {
-  final SupabaseClient _client = Supabase.instance.client;
+  final ProductScanService _scanService = ProductScanService();
 
   final TextEditingController _quantityCtrl = TextEditingController();
   final TextEditingController _discountCtrl = TextEditingController();
 
+  /// Product row data (mixed: DB row / result map) – UI isi pe chal rahi hai
   Map<String, dynamic>? productData;
+
   bool isLoading = false;
 
+  // ---------------------------------------------------------------------------
+  // FETCH PRODUCT BY BARCODE (VIA SERVICE)
+  // ---------------------------------------------------------------------------
   Future<void> _fetchProductByBarcode(String barcode) async {
     try {
       setState(() => isLoading = true);
-      final res = await _client
-          .from('products')
-          .select()
-          .eq('barcode', barcode)
-          .maybeSingle();
 
-      if (res == null) {
+      final Product? p = await _scanService.getProductByBarcode(barcode);
+
+      if (p == null) {
         Get.snackbar("Not Found", "No product found for this barcode");
         return;
       }
-      productData = res;
+
+      // Minimal map jo puranay UI ke keys se match kare
+      productData = {
+        'id': p.id,
+        'name': p.name,
+        'stock_quantity': p.stockQuantity ?? 0,
+        'selling_rate': p.sellingRate,
+      };
     } catch (e) {
       Get.snackbar("Error", "Failed to fetch product: $e");
     } finally {
@@ -53,6 +68,9 @@ class _AddItemPageState extends State<AddItemPage> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // CONFIRM ITEM (CREATE / UPDATE LINE ITEM)
+  // ---------------------------------------------------------------------------
   void _confirmItem() {
     if (productData == null) {
       Get.snackbar("Error", "No product selected");
@@ -67,38 +85,90 @@ class _AddItemPageState extends State<AddItemPage> {
       return;
     }
 
-    if (qty > (productData!['stock_quantity'] ?? 0)) {
-      Get.snackbar("Stock Error", "Not enough stock available");
+    // Available stock from productData
+    final int availableStock =
+        (productData!['stock_quantity'] as num?)?.toInt() ?? 0;
+
+    if (availableStock > 0 && qty > availableStock) {
+      Get.snackbar(
+        "Stock Error",
+        "Not enough stock available (Available: $availableStock)",
+      );
       return;
     }
 
-    final double unitPrice = (productData!['selling_rate'] ?? 0.0);
-    final double price = unitPrice * qty;
-    final double total = price - disc; // ✅ discount in rupees
+    // Unit price from productData
+    final double unitPrice =
+        (productData!['selling_rate'] as num?)?.toDouble() ??
+            (productData!['price'] as num?)?.toDouble() ??
+            0.0;
+
+    // 👉 Discount per piece (in Rupees)
+    final double discountPerPiece = disc;
+
+    if (discountPerPiece < 0) {
+      Get.snackbar("Error", "Discount cannot be negative.");
+      return;
+    }
+
+    if (discountPerPiece > unitPrice) {
+      Get.snackbar(
+        "Error",
+        "Discount per piece cannot be greater than item price.",
+      );
+      return;
+    }
+
+    /// 👉 Correct formula:
+    /// total = qty * (unitPrice - discountPerPiece)
+    final double total = qty * (unitPrice - discountPerPiece);
 
     final Map<String, dynamic> result = {
       'id': productData!['id'],
       'name': productData!['name'],
-      'price': unitPrice,
-      'pieces': qty,
-      'discount': disc,
-      'total': total,
+      'price': unitPrice,              // unit price
+      'pieces': qty,                   // quantity
+      'discount': discountPerPiece,    // discount per piece (Rs)
+      'total': total,                  // line total
+
+      // extra fields taake edit / validation me stock issue na aaye
+      'stock_quantity': availableStock,
+      'selling_rate': unitPrice,
     };
 
-    Get.back(result: result);
+    // Make sure result hamesha caller ko mile
+    if (Navigator.canPop(context)) {
+      Navigator.of(context).pop(result);
+    } else {
+      Get.back(result: result);
+    }
   }
 
+  // ---------------------------------------------------------------------------
+  // INIT: existing item ya scanned product ko handle karo
+  // ---------------------------------------------------------------------------
   @override
   void initState() {
     super.initState();
 
-    // ✅ priority order: existing item → scanned product
+    // 1) Edit existing item
     if (widget.existingItem != null) {
-      productData = widget.existingItem;
+      productData = Map<String, dynamic>.from(widget.existingItem!);
+
       _quantityCtrl.text = widget.existingItem!['pieces'].toString();
       _discountCtrl.text = widget.existingItem!['discount'].toString();
-    } else if (widget.fromScan && widget.scannedProduct != null) {
-      productData = widget.scannedProduct;
+
+      // ensure stock_quantity & selling_rate present
+      productData!['stock_quantity'] =
+      (widget.existingItem!['stock_quantity'] ?? 0);
+      productData!['selling_rate'] =
+      (widget.existingItem!['price'] ??
+          widget.existingItem!['selling_rate'] ??
+          0.0);
+    }
+    // 2) Directly scanned product from SellPage
+    else if (widget.fromScan && widget.scannedProduct != null) {
+      productData = Map<String, dynamic>.from(widget.scannedProduct!);
     }
   }
 
@@ -107,13 +177,6 @@ class _AddItemPageState extends State<AddItemPage> {
     final dark = SHelperFunctions.isDarkMode(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.existingItem == null
-            ? "Add Item to Bill"
-            : "Edit Item Details"),
-        backgroundColor: SColors.primary,
-        foregroundColor: Colors.white,
-      ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(SSizes.defaultSpace),
@@ -140,6 +203,9 @@ class _AddItemPageState extends State<AddItemPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ----------------------------------------------------------
+                // TITLE
+                // ----------------------------------------------------------
                 Center(
                   child: Text(
                     productData == null ? "Add / Scan Item" : "Item Details",
@@ -151,20 +217,27 @@ class _AddItemPageState extends State<AddItemPage> {
                 ),
                 const SizedBox(height: SSizes.spaceBtwSections),
 
-                // ✅ hide scan button when coming from SellPage scan
+                // ----------------------------------------------------------
+                // SCAN BUTTON (sirf jab koi product selected nahi & fromScan false)
+                // ----------------------------------------------------------
                 if (productData == null && !widget.fromScan)
                   ElevatedButton.icon(
                     icon: const Icon(Icons.qr_code_scanner),
                     label: const Text("Scan Barcode"),
                     onPressed: () async {
                       final barcode = await Navigator.of(context).push<String>(
-                        MaterialPageRoute(builder: (_) => const _ScannerPage()),
+                        MaterialPageRoute(
+                          builder: (_) => const _ScannerPage(),
+                        ),
                       );
                       if (barcode != null && barcode.isNotEmpty) {
                         await _fetchProductByBarcode(barcode);
                       }
                     },
                   )
+                // ----------------------------------------------------------
+                // PRODUCT SUMMARY BOX (jab product mil gaya)
+                // ----------------------------------------------------------
                 else if (productData != null)
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -177,18 +250,26 @@ class _AddItemPageState extends State<AddItemPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Product: ${productData!['name']}",
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 18)),
                         Text(
-                            "Stock: ${productData!['stock_quantity']} pcs   |   Price: ${productData!['selling_rate']}",
-                            style: const TextStyle(fontSize: 16)),
+                          "Product: ${productData!['name']}",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                        Text(
+                          "Stock: ${(productData!['stock_quantity'] ?? 0)} pcs   |   Price: ${productData!['selling_rate'] ?? productData!['price']}",
+                          style: const TextStyle(fontSize: 16),
+                        ),
                       ],
                     ),
                   ),
 
                 const SizedBox(height: SSizes.spaceBtwSections),
 
+                // ----------------------------------------------------------
+                // QUANTITY FIELD
+                // ----------------------------------------------------------
                 TextField(
                   controller: _quantityCtrl,
                   keyboardType: TextInputType.number,
@@ -200,18 +281,24 @@ class _AddItemPageState extends State<AddItemPage> {
                 ),
                 const SizedBox(height: SSizes.spaceBtwItems),
 
+                // ----------------------------------------------------------
+                // DISCOUNT FIELD (RUPEES PER PIECE)
+                // ----------------------------------------------------------
                 TextField(
                   controller: _discountCtrl,
                   keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
-                    labelText: "Discount (Rs)",
+                    labelText: "Discount per piece (Rs)",
                     prefixIcon: Icon(Icons.discount),
                     border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: SSizes.spaceBtwSections),
 
+                // ----------------------------------------------------------
+                // CONFIRM BUTTON
+                // ----------------------------------------------------------
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -230,9 +317,10 @@ class _AddItemPageState extends State<AddItemPage> {
                           ? "Add Item"
                           : "Update Item",
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16),
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
                 ),
@@ -245,7 +333,9 @@ class _AddItemPageState extends State<AddItemPage> {
   }
 }
 
-// ✅ simple internal scanner (used only when manually opened)
+// ---------------------------------------------------------------------------
+// INTERNAL SCANNER PAGE (UI SAME AS BEFORE)
+// ---------------------------------------------------------------------------
 class _ScannerPage extends StatefulWidget {
   const _ScannerPage({super.key});
 
@@ -255,12 +345,16 @@ class _ScannerPage extends StatefulWidget {
 
 class _ScannerPageState extends State<_ScannerPage> {
   final MobileScannerController _controller = MobileScannerController();
+  bool _isProcessed = false;
 
   void _onDetect(BarcodeCapture capture) {
+    if (_isProcessed) return;
+
     final barcodes = capture.barcodes;
     if (barcodes.isNotEmpty) {
       final code = barcodes.first.rawValue;
       if (code != null && code.isNotEmpty) {
+        _isProcessed = true;
         Navigator.of(context).pop(code);
       }
     }

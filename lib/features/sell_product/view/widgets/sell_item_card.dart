@@ -7,7 +7,7 @@ class SellItemCard extends StatelessWidget {
   final String name;
   final double price;
   final int pieces;
-  final double discount;
+  final double discount; // 🔹 discount in Rupees (line discount)
 
   const SellItemCard({
     super.key,
@@ -26,9 +26,8 @@ class SellItemCard extends StatelessWidget {
       height: 100,
       margin: const EdgeInsets.only(right: SSizes.sm),
       decoration: BoxDecoration(
-        color: dark
-            ? Colors.white.withOpacity(0.1)
-            : Colors.white.withOpacity(0.6),
+        color:
+        dark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.6),
         border: Border.all(
           color: SColors.primary.withOpacity(0.8),
           width: 1.5,
@@ -45,7 +44,7 @@ class SellItemCard extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Item title area
+          // title bar
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -53,7 +52,8 @@ class SellItemCard extends StatelessWidget {
               color: dark
                   ? SColors.darkContainer
                   : SColors.primary.withOpacity(0.8),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+              borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(6)),
             ),
             child: Center(
               child: Text(
@@ -77,7 +77,9 @@ class SellItemCard extends StatelessWidget {
               children: [
                 _infoRow(context, "Price", price.toStringAsFixed(0)),
                 _infoRow(context, "Pcs", pieces.toString()),
-                _infoRow(context, "Disc", "${discount.toStringAsFixed(1)}%"),
+                // 🔹 no percent sign, discount is Rs
+                _infoRow(
+                    context, "Disc", discount.toStringAsFixed(1)),
               ],
             ),
           ),
@@ -90,16 +92,20 @@ class SellItemCard extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: SColors.textSecondary,
-            )),
-        Text(value,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: SColors.textPrimary,
-            )),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: SColors.textSecondary,
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: SColors.textPrimary,
+          ),
+        ),
       ],
     );
   }

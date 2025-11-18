@@ -1,22 +1,26 @@
-class Category {
-  final String id;
+class CategoryModel {
+  final String? id;
   final String name;
   final DateTime? createdAt;
 
-  Category({required this.id, required this.name, this.createdAt});
+  CategoryModel({
+    this.id,
+    required this.name,
+    this.createdAt,
+  });
 
-  factory Category.fromJson(Map<String, dynamic> json) => Category(
-    id: json['id'] as String,
-    name: json['name'] as String,
-    createdAt: json['created_at'] == null ? null : DateTime.parse(json['created_at'] as String),
-  );
+  factory CategoryModel.fromMap(Map<String, dynamic> json) {
+    return CategoryModel(
+      id: json['id'] as String?,
+      name: json['name'] ?? '',
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : null,
+    );
+  }
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
+  Map<String, dynamic> toMap() => {
     'name': name,
     'created_at': createdAt?.toIso8601String(),
   };
-
-  Category copyWith({String? id, String? name, DateTime? createdAt}) =>
-      Category(id: id ?? this.id, name: name ?? this.name, createdAt: createdAt ?? this.createdAt);
 }

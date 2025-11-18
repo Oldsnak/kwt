@@ -1,52 +1,102 @@
-// lib/features/core_controllers/stock_controller.dart
-import 'package:get/get.dart';
-import 'package:kwt/core/services/stock_service.dart';
+// lib/core/controllers/stock_controller.dart
 
-import '../models/stock_model.dart';
+import 'package:get/get.dart';
+
+import '../models/product_model.dart';
+import '../models/stock_entry_model.dart';
+import '../services/stock_service.dart';
 
 class StockController extends GetxController {
-  final StockService _service = StockService();
+  final StockService _stockService = StockService();
 
-  final RxList<StockEntry> history = <StockEntry>[].obs;
-  final RxBool isLoading = false.obs;
+  // ---------------------------------------------------------------------------
+  // REACTIVE STATES
+  // ---------------------------------------------------------------------------
 
-  Future<void> loadHistory(String productId) async {
+  /// Full stock history of a specific product
+  final RxList<StockEntry> stockHistory = <StockEntry>[].obs;
+
+  /// Current product information (updated after stock add)
+  final Rxn<Product> product = Rxn<Product>();
+
+  /// Loading states
+  final RxBool isLoadingHistory = false.obs;
+  final RxBool isAddingStock = false.obs;
+
+  /// Error message holder
+  final RxString errorMessage = ''.obs;
+
+  // ---------------------------------------------------------------------------
+  // LOAD STOCK HISTORY FOR PRODUCT
+  // ---------------------------------------------------------------------------
+
+  Future<void> loadStockHistory(String productId) async {
     try {
-      isLoading.value = true;
-      final res = await _service.getStockHistory(productId);
-      // convert to StockEntry models if needed:
-      history.value = res.map((m) => StockEntry.fromJson(Map<String, dynamic>.from(m))).toList();
+      isLoadingHistory.value = true;
+      errorMessage.value = '';
+
+      // fetch live product info
+      final p = await _stockService.getProduct(productId);
+      product.value = p;
+
+      // fetch history list
+      final history = await _stockService.getStockHistory(productId);
+      stockHistory.assignAll(history);
     } catch (e) {
-      print('StockController.loadHistory error: $e');
+      errorMessage.value = "Failed to load stock history: $e";
     } finally {
-      isLoading.value = false;
+      isLoadingHistory.value = false;
     }
   }
 
-  Future<void> addStock({
+  // ---------------------------------------------------------------------------
+  // ADD STOCK FOR A PRODUCT
+  // ---------------------------------------------------------------------------
+
+  Future<bool> addStock({
     required String productId,
     required int quantity,
     required double purchaseRate,
     required double sellingRate,
+    required DateTime receivedDate,
   }) async {
     try {
-      isLoading.value = true;
-      await _service.addStock(
+      isAddingStock.value = true;
+      errorMessage.value = '';
+
+      // Add stock using service
+      await _stockService.addStock(
         productId: productId,
         quantity: quantity,
         purchaseRate: purchaseRate,
         sellingRate: sellingRate,
+        receivedDate: receivedDate,
       );
-      await loadHistory(productId);
+
+      // Reload updated product + stock history
+      await loadStockHistory(productId);
+
+      return true;
     } catch (e) {
-      print('StockController.addStock error: $e');
-      rethrow;
+      errorMessage.value = "Failed to add stock: $e";
+      return false;
     } finally {
-      isLoading.value = false;
+      isAddingStock.value = false;
     }
   }
 
-  Future<int> currentStock(String productId) async {
-    return await _service.getCurrentStock(productId);
+  // ---------------------------------------------------------------------------
+  // GET STOCK VALUE FOR PRODUCT (for analytics / dashboard)
+  // ---------------------------------------------------------------------------
+
+  Future<Map<String, double>> getStockValue(String productId) async {
+    try {
+      return await _stockService.getProductStockValue(productId);
+    } catch (_) {
+      return {
+        'purchase_value': 0.0,
+        'selling_value': 0.0,
+      };
+    }
   }
 }

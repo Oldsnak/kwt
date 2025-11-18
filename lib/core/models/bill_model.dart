@@ -1,93 +1,130 @@
-// Bill model (add to lib/core/models/models.dart or lib/core/models/bill_model.dart)
+// lib/core/models/bill_model.dart
 
-import 'package:kwt/core/models/sale_model.dart';
-
+/// Represents a single bill (invoice) in the system.
+///
+/// Maps to `public.bills` table:
+/// id, bill_no, customer_id, salesperson_id, total_items, sub_total,
+/// total_discount, total, total_paid, is_fully_paid, created_at
 class Bill {
-  final String id;
-  final int? billNo;
+  /// Supabase row id (uuid) – null when not yet inserted.
+  final String? id;
+
+  /// Human-readable bill number like "A0B9Z".
+  final String billNo;
+
+  /// FK to customers.id (can be null for walk-in customers).
   final String? customerId;
+
+  /// FK to user_profiles.id (salesperson / owner who created the bill).
   final String? salespersonId;
-  final DateTime createdAt;
 
-  // line items (use Sale model for each item)
-  final List<Sale> items;
+  /// Number of distinct line items in this bill.
+  final int totalItems;
 
-  // money summary
-  final double subTotal;       // sum of (price_per_unit * qty) before discounts
-  final double totalDiscount;  // sum of discounts
-  final double total;          // subTotal - totalDiscount
-  final double totalPaid;      // amount paid at checkout
-  final bool isPaid;           // true if fully paid, false if some due remains
+  /// Total amount before any discounts.
+  final double subTotal;
 
-  Bill({
-    required this.id,
-    this.billNo,
+  /// Total discount on this bill (sum of all line discounts).
+  final double totalDiscount;
+
+  /// Final amount after discount: subTotal - totalDiscount.
+  final double total;
+
+  /// How much customer actually paid for this bill.
+  final double totalPaid;
+
+  /// True if bill is fully paid, false if there are pending dues.
+  final bool isFullyPaid;
+
+  /// When bill was created (from DB).
+  final DateTime? createdAt;
+
+  const Bill({
+    this.id,
+    required this.billNo,
     this.customerId,
     this.salespersonId,
-    DateTime? createdAt,
-    required this.items,
+    required this.totalItems,
     required this.subTotal,
     required this.totalDiscount,
     required this.total,
     required this.totalPaid,
-    required this.isPaid,
-  }) : createdAt = createdAt ?? DateTime.now();
+    required this.isFullyPaid,
+    this.createdAt,
+  });
 
-  factory Bill.fromJson(Map<String, dynamic> json) => Bill(
-    id: json['id'] as String,
-    billNo: json['bill_no'] == null ? null : (json['bill_no'] as num).toInt(),
-    customerId: json['customer_id'] as String?,
-    salespersonId: json['salesperson_id'] as String?,
-    createdAt: json['created_at'] == null ? DateTime.now() : DateTime.parse(json['created_at'] as String),
-    items: (json['items'] as List<dynamic>?)
-        ?.map((e) => e is Sale ? e : Sale.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList() ??
-        <Sale>[],
-    subTotal: (json['sub_total'] ?? 0).toDouble(),
-    totalDiscount: (json['total_discount'] ?? 0).toDouble(),
-    total: (json['total'] ?? 0).toDouble(),
-    totalPaid: (json['total_paid'] ?? 0).toDouble(),
-    isPaid: json['is_paid'] == null ? false : (json['is_paid'] as bool),
-  );
+  /// Convenience: pending amount = total - totalPaid (never negative).
+  double get pendingAmount {
+    final p = total - totalPaid;
+    return p < 0 ? 0 : p;
+  }
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'bill_no': billNo,
-    'customer_id': customerId,
-    'salesperson_id': salespersonId,
-    'created_at': createdAt.toIso8601String(),
-    'items': items.map((s) => s.toJson()).toList(),
-    'sub_total': subTotal,
-    'total_discount': totalDiscount,
-    'total': total,
-    'total_paid': totalPaid,
-    'is_paid': isPaid,
-  };
+  /// Convenience: true if there is any pending amount.
+  bool get hasPendingAmount => !isFullyPaid && pendingAmount > 0;
 
+  /// Create a copy with some changed fields.
   Bill copyWith({
     String? id,
-    int? billNo,
+    String? billNo,
     String? customerId,
     String? salespersonId,
-    DateTime? createdAt,
-    List<Sale>? items,
+    int? totalItems,
     double? subTotal,
     double? totalDiscount,
     double? total,
     double? totalPaid,
-    bool? isPaid,
-  }) =>
-      Bill(
-        id: id ?? this.id,
-        billNo: billNo ?? this.billNo,
-        customerId: customerId ?? this.customerId,
-        salespersonId: salespersonId ?? this.salespersonId,
-        createdAt: createdAt ?? this.createdAt,
-        items: items ?? this.items,
-        subTotal: subTotal ?? this.subTotal,
-        totalDiscount: totalDiscount ?? this.totalDiscount,
-        total: total ?? this.total,
-        totalPaid: totalPaid ?? this.totalPaid,
-        isPaid: isPaid ?? this.isPaid,
-      );
+    bool? isFullyPaid,
+    DateTime? createdAt,
+  }) {
+    return Bill(
+      id: id ?? this.id,
+      billNo: billNo ?? this.billNo,
+      customerId: customerId ?? this.customerId,
+      salespersonId: salespersonId ?? this.salespersonId,
+      totalItems: totalItems ?? this.totalItems,
+      subTotal: subTotal ?? this.subTotal,
+      totalDiscount: totalDiscount ?? this.totalDiscount,
+      total: total ?? this.total,
+      totalPaid: totalPaid ?? this.totalPaid,
+      isFullyPaid: isFullyPaid ?? this.isFullyPaid,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  /// Factory to create Bill from Supabase (Map) row.
+  factory Bill.fromMap(Map<String, dynamic> map) {
+    return Bill(
+      id: map['id'] as String?,
+      billNo: map['bill_no'] as String,
+      customerId: map['customer_id'] as String?,
+      salespersonId: map['salesperson_id'] as String?,
+      totalItems: (map['total_items'] as int?) ?? 0,
+      subTotal: (map['sub_total'] as num).toDouble(),
+      totalDiscount: (map['total_discount'] as num).toDouble(),
+      total: (map['total'] as num).toDouble(),
+      totalPaid: (map['total_paid'] as num).toDouble(),
+      isFullyPaid: map['is_fully_paid'] as bool,
+      createdAt: map['created_at'] != null
+          ? DateTime.parse(map['created_at'] as String)
+          : null,
+    );
+  }
+
+  /// For inserting/updating to Supabase.
+  ///
+  /// Note: `id` and `created_at` are generated by Supabase, so we **do not**
+  /// send them in insert payload.
+  Map<String, dynamic> toMap() {
+    return {
+      'bill_no': billNo,
+      'customer_id': customerId,
+      'salesperson_id': salespersonId,
+      'total_items': totalItems,
+      'sub_total': subTotal,
+      'total_discount': totalDiscount,
+      'total': total,
+      'total_paid': totalPaid,
+      'is_fully_paid': isFullyPaid,
+    };
+  }
 }

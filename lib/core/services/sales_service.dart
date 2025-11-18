@@ -1,65 +1,168 @@
 // lib/core/services/sales_service.dart
+
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'supabase_service.dart';
+import '../models/sale_model.dart';
+import '../models/bill_model.dart';
+import 'bill_service.dart';
 
 class SalesService {
-  final SupabaseClient _client = SupabaseService.client;
+  final SupabaseClient _client = Supabase.instance.client;
+  final BillService _billService = BillService();
 
-  // Finalize bill: convert cart items into sales rows, decrement product stock, return bill meta
-  Future<Map<String, dynamic>> finalizeBill({
+  // ===========================================================================
+  // FINALIZE BILL (Main function called on Checkout)
+  // ===========================================================================
+
+  Future<String> finalizeBill({
+    required List<Sale> items,
     required String? customerId,
     required String? salespersonId,
+    required bool isPaidFully,
     required double totalPaid,
-    required bool isPaid,
   }) async {
-    // 1) fetch cart items (no .execute())
-    final cartRes = await _client.from('cart').select();
-    final List cartItems = (cartRes as List<dynamic>?) ?? [];
-
-    if (cartItems.isEmpty) throw Exception('Cart is empty');
-
-    // 2) insert each into sales and update product stock
-    List insertedSales = [];
-    for (final item in cartItems) {
-      final productId = item['product_id'] as String;
-      final qty = (item['quantity'] as num).toInt();
-      final discountPerPiece = (item['discount_per_piece'] ?? 0) as num;
-      final total = (item['total_amount'] as num).toDouble();
-
-      final saleMap = {
-        'product_id': productId,
-        'quantity': qty,
-        'discount_per_piece': discountPerPiece,
-        'total_amount': total,
-        'salesperson_id': salespersonId,
-        'customer_id': customerId,
-      };
-
-      final inserted = await _client.from('sales').insert(saleMap).select().single();
-      insertedSales.add(inserted);
-
-      // decrement product stock: read -> compute -> update
-      final prodRes = await _client.from('products').select().eq('id', productId).single();
-      if (prodRes != null) {
-        final int cur = (prodRes['stock_quantity'] ?? 0) as int;
-        final int newStock = cur - qty;
-        await _client.from('products').update({'stock_quantity': newStock}).eq('id', productId);
-      }
+    if (items.isEmpty) {
+      throw Exception("Cannot finalize an empty bill.");
     }
 
-    // 3) clear cart
-    await _client.from('cart').delete();
+    // ------------------------------------------------------------------------
+    // CALCULATE BILL TOTALS
+    // ------------------------------------------------------------------------
+    double subTotal = 0;
+    double totalDiscount = 0;
 
-    // 4) Compose bill meta (you can also store in a bills table)
-    final billMeta = {
-      'items_count': cartItems.length,
-      'total_paid': totalPaid,
-      'is_paid': isPaid,
-      'sales_generated': insertedSales.length,
-      'sales': insertedSales,
-      'created_at': DateTime.now().toIso8601String(),
+    for (var item in items) {
+      subTotal += item.sellingRate * item.quantity;
+      totalDiscount += item.discountPerPiece * item.quantity;
+    }
+
+    double finalTotal = subTotal - totalDiscount;
+
+    if (totalPaid > finalTotal) {
+      totalPaid = finalTotal; // prevent overpay
+    }
+
+    final bool isFullyPaid = isPaidFully ? true : (totalPaid >= finalTotal);
+
+    // ------------------------------------------------------------------------
+    // GET NEXT BILL NUMBER
+    // ------------------------------------------------------------------------
+    final String billNo = await _billService.getNextBillNumber();
+
+    // ------------------------------------------------------------------------
+    // CREATE BILL HEADER
+    // ------------------------------------------------------------------------
+    final String billId = await _billService.createBillHeader(
+      billNo: billNo,
+      customerId: customerId,
+      salespersonId: salespersonId,
+      totalItems: items.length,
+      subTotal: subTotal,
+      totalDiscount: totalDiscount,
+      total: finalTotal,
+      totalPaid: totalPaid,
+      isFullyPaid: isFullyPaid,
+    );
+
+    // ------------------------------------------------------------------------
+    // INSERT ALL ITEMS INTO sales TABLE
+    // ------------------------------------------------------------------------
+    for (var item in items) {
+      final itemMap = item.copyWith(billId: billId).toMap();
+
+      await _client.from('sales').insert(itemMap);
+
+      // ------------------------------------------------------------
+      // UPDATE PRODUCT STOCK
+      // ------------------------------------------------------------
+      await _client.rpc(
+        'decrease_product_stock',
+        params: {
+          'p_product_id': item.productId,
+          'p_qty': item.quantity,
+        },
+      );
+    }
+
+    // ------------------------------------------------------------------------
+    // IF BILL NOT FULLY PAID → ADD INTO customer_debts TABLE
+    // ------------------------------------------------------------------------
+    if (!isFullyPaid && customerId != null) {
+      final double pending = finalTotal - totalPaid;
+
+      await _client.from('customer_debts').insert({
+        'customer_id': customerId,
+        'bill_id': billId,
+        'debt_amount': pending,
+      });
+    }
+
+    return billId; // helpful for UI
+  }
+
+  // ===========================================================================
+  // GET SALES ITEMS OF A BILL (for Bill Detail Page)
+  // ===========================================================================
+
+  Future<List<Sale>> getBillItems(String billId) async {
+    final response = await _client
+        .from('sales')
+        .select('*, products(name, barcode)')
+        .eq('bill_id', billId);
+
+    return response
+        .map((row) => Sale.fromMap({
+      ...row,
+      'product_name': row['products']?['name'],
+      'barcode': row['products']?['barcode'],
+    }))
+        .toList();
+  }
+
+  // ===========================================================================
+  // GET TOTAL SALES & PROFIT OF A PRODUCT (Dashboard analytics)
+  // ===========================================================================
+
+  Future<Map<String, dynamic>> getProductSaleSummary(String productId) async {
+    final response = await _client.rpc(
+      'get_product_sales_summary',
+      params: {'p_product_id': productId},
+    );
+
+    if (response == null) {
+      return {
+        'total_sold': 0,
+        'total_revenue': 0.0,
+        'total_profit': 0.0,
+      };
+    }
+
+    return {
+      'total_sold': response['total_sold'] ?? 0,
+      'total_revenue': (response['total_revenue'] ?? 0).toDouble(),
+      'total_profit': (response['total_profit'] ?? 0).toDouble(),
     };
+  }
 
-    return billMeta;
+  // ===========================================================================
+  // SALES OF LAST N DAYS (Useful for Dashboard Graph)
+  // ===========================================================================
+
+  Future<List<Sale>> getSalesOfLastDays(int days) async {
+    final response = await _client
+        .from('sales')
+        .select('*, products(name, barcode)')
+        .gte(
+      'sold_at',
+      DateTime.now().subtract(Duration(days: days)).toIso8601String(),
+    )
+        .order('sold_at', ascending: false);
+
+    return response
+        .map((row) => Sale.fromMap({
+      ...row,
+      'product_name': row['products']?['name'],
+      'barcode': row['products']?['barcode'],
+    }))
+        .toList();
   }
 }

@@ -1,39 +1,64 @@
 // lib/core/services/product_scan_service.dart
+
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'supabase_service.dart';
+
+import '../models/product_model.dart';
 
 class ProductScanService {
-  final SupabaseClient _client = SupabaseService.client;
+  final SupabaseClient _client = Supabase.instance.client;
 
-  /// Call this with scanned barcode string.
-  /// It tries to find product by barcode and adds to cart (1 qty by default).
-  Future<Map<String, dynamic>?> addScannedProductToCart(String barcode, {int qty = 1, double discountPerPiece = 0}) async {
-    try {
-      final product = await _client.from('products').select().eq('barcode', barcode).maybeSingle();
-      if (product == null) return null;
+  /// Fetch a single product by its barcode.
+  ///
+  /// Used on Sell Page when salesperson scans a product.
+  /// Returns `Product` if found, otherwise `null`.
+  Future<Product?> getProductByBarcode(String barcode) async {
+    if (barcode.isEmpty) return null;
 
-      final prodMap = Map<String, dynamic>.from(product as Map);
-      final productId = prodMap['id'] as String;
+    final response = await _client
+        .from('products')
+        .select()
+        .eq('barcode', barcode)
+        .eq('is_active', true)
+        .maybeSingle();
 
-      final totalAmount = ((prodMap['selling_rate'] as num).toDouble() * qty) - (discountPerPiece * qty);
+    if (response == null) return null;
 
-      final inserted = await _client.from('cart').insert({
-        'product_id': productId,
-        'quantity': qty,
-        'discount_per_piece': discountPerPiece,
-        'total_amount': totalAmount,
-      }).select().single();
-
-      return Map<String, dynamic>.from(inserted);
-    } catch (e) {
-      print('ProductScanService error: $e');
-      rethrow;
-    }
+    return Product.fromMap(response);
   }
 
-  // helper: find product by barcode
-  Future<Map<String, dynamic>?> findProductByBarcode(String barcode) async {
-    final res = await _client.from('products').select().eq('barcode', barcode).maybeSingle();
-    return res == null ? null : Map<String, dynamic>.from(res as Map);
+  /// Fetch product by its id.
+  ///
+  /// Useful when you already have product_id from sales/stock tables
+  /// and want to show product detail.
+  Future<Product?> getProductById(String productId) async {
+    final response = await _client
+        .from('products')
+        .select()
+        .eq('id', productId)
+        .maybeSingle();
+
+    if (response == null) return null;
+
+    return Product.fromMap(response);
+  }
+
+  /// Search products by name (for search box on dashboard / add item popup).
+  ///
+  /// This is optional but very handy for:
+  /// - search bar on Dashboard
+  /// - manual item selection when barcode not available.
+  Future<List<Product>> searchProductsByName(String query) async {
+    if (query.trim().isEmpty) {
+      return [];
+    }
+
+    final response = await _client
+        .from('products')
+        .select()
+        .ilike('name', '%$query%')
+        .eq('is_active', true)
+        .order('name');
+
+    return response.map<Product>((row) => Product.fromMap(row)).toList();
   }
 }
