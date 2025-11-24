@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:kwt/features/sales_bill/view/widgets/SalesPersonIcon.dart';
+import 'package:kwt/features/sales_bill/widgets/SalesPersonIcon.dart';
+import 'package:kwt/features/sales_bill/widgets/customer_bill.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:kwt/app/theme/colors.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
-import '../../../core/constants/app_images.dart';
-import '../../../widgets/custom_appbar/custom_appbar.dart';
-import '../../../widgets/custom_shapes/containers/primary_header_container.dart';
-import '../../../widgets/texts/section_heading.dart';
+import '../../core/constants/app_images.dart';
+import '../../widgets/custom_appbar/custom_appbar.dart';
+import '../../widgets/custom_shapes/containers/primary_header_container.dart';
+import '../../widgets/texts/section_heading.dart';
 
 class SalesBillPage extends StatefulWidget {
   const SalesBillPage({super.key});
@@ -24,43 +26,80 @@ class _SalesBillPageState extends State<SalesBillPage> {
   String searchBill = "";
 
   List<Map<String, dynamic>> allBills = [];
+  List<Map<String, dynamic>> salesmen = [];
+
   bool isLoading = true;
 
   final TextEditingController searchCtrl = TextEditingController();
 
-  // STATIC SALESMEN LIST
-  final List<Map<String, dynamic>> salesmen = [
-    {"name": "All", "id": null, "img": SImages.user3},
-    {"name": "Mudassar", "id": "mudassar", "img": SImages.user3},
-    {"name": "Talha", "id": "talha", "img": SImages.user2},
-    {"name": "Asghar", "id": "asghar", "img": SImages.user4},
-    {"name": "Tayyab", "id": "tayyab", "img": SImages.user},
-  ];
-
   @override
   void initState() {
     super.initState();
+    loadSalesmen();
     loadBills();
   }
 
   // ---------------------------------------------------------------------------
-  // LOAD BILLS WITH CUSTOMER NAME
+  // LOAD SALESMEN (REAL SALES PERSONS FROM user_profiles)
+  // ---------------------------------------------------------------------------
+  Future<void> loadSalesmen() async {
+    try {
+      final data = await client
+          .from("user_profiles")
+          .select("id, full_name, role");
+
+      final list = (data as List)
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => e['role'] == 'salesperson')
+          .toList();
+
+      salesmen = [
+        {
+          "name": "All",
+          "id": "All",
+          "img": SImages.user3,
+        },
+        ...list.map((s) => {
+          "name": s["full_name"],
+          "id": s["id"],
+          "img": SImages.user,
+        })
+      ];
+
+      setState(() {});
+    } catch (e) {
+      print("loadSalesmen error: $e");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // LOAD BILLS WITH CUSTOMER + APPLY ROLE FILTER
   // ---------------------------------------------------------------------------
   Future<void> loadBills() async {
     try {
       setState(() => isLoading = true);
 
-      final data = await client
-          .from("bills")
-          .select("""
-            id,
-            bill_no,
-            total,
-            created_at,
-            salesperson_id,
-            customer:customer_id(name)
-          """)
-          .order("created_at", ascending: false);
+      final user = client.auth.currentUser;
+
+      final isOwner = await _isOwner(user!.id);
+
+      // First create the base query WITHOUT .order()
+      final baseQuery = client.from("bills").select("""
+      id,
+      bill_no,
+      total,
+      created_at,
+      salesperson_id,
+      customer:customer_id(name)
+    """);
+
+      // Apply filter BEFORE order()
+      if (!isOwner) {
+        baseQuery.eq("salesperson_id", user.id);
+      }
+
+      // NOW apply order
+      final data = await baseQuery.order("created_at", ascending: false);
 
       allBills = (data as List)
           .map((e) => Map<String, dynamic>.from(e))
@@ -72,26 +111,48 @@ class _SalesBillPageState extends State<SalesBillPage> {
     }
   }
 
+
   // ---------------------------------------------------------------------------
-  // FILTERING
+  // CHECK IF USER IS OWNER
+  // ---------------------------------------------------------------------------
+  Future<bool> _isOwner(String uid) async {
+    try {
+      final res = await client
+          .from("user_profiles")
+          .select("role")
+          .eq("id", uid)
+          .maybeSingle();
+
+      if (res == null) return false;
+
+      return res["role"] == "owner";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // FILTERS
   // ---------------------------------------------------------------------------
   List<Map<String, dynamic>> get filteredBills {
     return allBills.where((bill) {
       final billNo = (bill["bill_no"] ?? "").toString().toLowerCase();
       final salesmanId = bill["salesperson_id"]?.toString() ?? "";
 
-      bool matchSearch = billNo.contains(searchBill.toLowerCase());
-      bool matchSalesman =
-      selectedSalesman == "All"
+      // Search filter
+      final matchSearch = billNo.contains(searchBill.toLowerCase());
+
+      // Salesman filter
+      final matchSalesman = selectedSalesman == "All"
           ? true
-          : salesmanId == selectedSalesman;
+          : selectedSalesman == salesmanId;
 
       return matchSearch && matchSalesman;
     }).toList();
   }
 
   // ---------------------------------------------------------------------------
-  // UI
+  // UI (UNCHANGED)
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -149,7 +210,8 @@ class _SalesBillPageState extends State<SalesBillPage> {
 
                       // SALES PERSON FILTER
                       Padding(
-                        padding: const EdgeInsets.only(left: SSizes.defaultSpace),
+                        padding:
+                        const EdgeInsets.only(left: SSizes.defaultSpace),
                         child: Column(
                           children: [
                             const SectionHeading(
@@ -158,6 +220,7 @@ class _SalesBillPageState extends State<SalesBillPage> {
                               textColor: Colors.black,
                             ),
                             const SizedBox(height: SSizes.spaceBtwItems),
+
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: Row(
@@ -165,10 +228,10 @@ class _SalesBillPageState extends State<SalesBillPage> {
                                   return SalesPersonIcon(
                                     image: sm["img"],
                                     title: sm["name"],
-                                    salesPersonId: sm["id"] ?? "",
+                                    salesPersonId: sm["id"],
                                     onTap: () {
                                       setState(() {
-                                        selectedSalesman = sm["id"] ?? "All";
+                                        selectedSalesman = sm["id"];
                                       });
                                     },
                                   );
@@ -195,7 +258,8 @@ class _SalesBillPageState extends State<SalesBillPage> {
                       : Column(
                     children: filteredBills.map((bill) {
                       final customerName =
-                          bill["customer"]?["name"] ?? "Walking Customer";
+                          bill["customer"]?["name"] ??
+                              "Walking Customer";
 
                       return Container(
                         decoration: BoxDecoration(
@@ -220,7 +284,8 @@ class _SalesBillPageState extends State<SalesBillPage> {
                                   : SColors.white,
                               borderRadius:
                               BorderRadius.circular(SSizes.sm),
-                              border: Border.all(color: SColors.primary),
+                              border: Border.all(
+                                  color: SColors.primary),
                             ),
                             child: Center(
                               child: Text(
@@ -235,22 +300,30 @@ class _SalesBillPageState extends State<SalesBillPage> {
                               ),
                             ),
                           ),
-
                           title: Text(
                             customerName,
                             style: Theme.of(context)
                                 .textTheme
                                 .titleLarge
-                                ?.copyWith(fontWeight: FontWeight.bold),
+                                ?.copyWith(
+                                fontWeight: FontWeight.bold),
                           ),
-
                           subtitle: Text(
                             "Total Bill: ${bill["total"]}",
-                            style: Theme.of(context).textTheme.labelLarge,
+                            style:
+                            Theme.of(context).textTheme.labelLarge,
+                          ),
+                          trailing: const Icon(
+                            Icons.arrow_forward_ios,
+                            color: SColors.primary,
                           ),
 
-                          trailing: const Icon(Icons.arrow_forward_ios,
-                              color: SColors.primary),
+                          // OPEN BILL DETAILS
+                          onTap: () {
+                            Get.to(() => CustomerBill(
+                              billId: bill["id"],
+                            ));
+                          },
                         ),
                       );
                     }).toList(),

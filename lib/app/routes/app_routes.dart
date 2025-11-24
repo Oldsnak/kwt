@@ -1,13 +1,19 @@
 class AppRoutes {
-  static const String splash = '/';
-  static const String login = '/login';
-  static const String home = '/home';
-  static const String dashboard = '/dashboard';
-  static const String sell = '/sell';
-  static const String salesBill = '/sales_bill';
-  static const String settings = '/settings';
-  static const String addItem = '/add_item';
-  static const String notifications = '/notifications';
-  static const String salesmen = '/salesmen';
-  static const String registeredCustomers = '/registered_customers';
+  static const splash = '/';
+  static const login = '/login';
+
+  static const home = '/home';
+  static const dashboard = '/dashboard';
+  static const sell = '/sell';
+  static const salesBill = '/sales_bill';
+
+  static const settings = '/settings';
+  static const addItem = '/add_item';
+  static const notifications = '/notifications';
+  static const removeItems = '/remove_items';
+
+  static const salesmen = '/salesmen';
+  static const addSalesmen = '/add_salesmen';
+
+  static const registeredCustomers = '/registered_customers';
 }

@@ -41,7 +41,8 @@ class SalesService {
       totalPaid = finalTotal; // prevent overpay
     }
 
-    final bool isFullyPaid = isPaidFully ? true : (totalPaid >= finalTotal);
+    final bool isFullyPaid =
+    isPaidFully ? true : (totalPaid >= finalTotal);
 
     // ------------------------------------------------------------------------
     // GET NEXT BILL NUMBER
@@ -93,14 +94,17 @@ class SalesService {
         'customer_id': customerId,
         'bill_id': billId,
         'debt_amount': pending,
+        'paid_amount': 0,
+        'remaining_amount': pending,
+        // due_date user input se aayega (optional)
       });
     }
 
-    return billId; // helpful for UI
+    return billId;
   }
 
   // ===========================================================================
-  // GET SALES ITEMS OF A BILL (for Bill Detail Page)
+  // GET BILL ITEMS
   // ===========================================================================
 
   Future<List<Sale>> getBillItems(String billId) async {
@@ -119,10 +123,11 @@ class SalesService {
   }
 
   // ===========================================================================
-  // GET TOTAL SALES & PROFIT OF A PRODUCT (Dashboard analytics)
+  // PRODUCT SALE SUMMARY (Dashboard analytics)
   // ===========================================================================
 
-  Future<Map<String, dynamic>> getProductSaleSummary(String productId) async {
+  Future<Map<String, dynamic>> getProductSaleSummary(
+      String productId) async {
     final response = await _client.rpc(
       'get_product_sales_summary',
       params: {'p_product_id': productId},
@@ -138,13 +143,15 @@ class SalesService {
 
     return {
       'total_sold': response['total_sold'] ?? 0,
-      'total_revenue': (response['total_revenue'] ?? 0).toDouble(),
-      'total_profit': (response['total_profit'] ?? 0).toDouble(),
+      'total_revenue':
+      (response['total_revenue'] ?? 0).toDouble(),
+      'total_profit':
+      (response['total_profit'] ?? 0).toDouble(),
     };
   }
 
   // ===========================================================================
-  // SALES OF LAST N DAYS (Useful for Dashboard Graph)
+  // SALES OF LAST N DAYS
   // ===========================================================================
 
   Future<List<Sale>> getSalesOfLastDays(int days) async {
@@ -153,7 +160,9 @@ class SalesService {
         .select('*, products(name, barcode)')
         .gte(
       'sold_at',
-      DateTime.now().subtract(Duration(days: days)).toIso8601String(),
+      DateTime.now()
+          .subtract(Duration(days: days))
+          .toIso8601String(),
     )
         .order('sold_at', ascending: false);
 

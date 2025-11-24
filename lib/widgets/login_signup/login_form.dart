@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../core/constants/app_sizes.dart';
 import '../../core/constants/app_strings.dart';
-import '../../features/auth/controller/auth_controller.dart';
+import '../../core/controllers/auth_controller.dart';
 
 class LoginForm extends StatefulWidget {
   const LoginForm({super.key});
@@ -15,10 +15,26 @@ class _LoginFormState extends State<LoginForm> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final authController = Get.put(AuthController());
+  final AuthController authController = Get.find<AuthController>();
 
   bool _isObscure = true;
   bool _rememberMe = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    if (_formKey.currentState!.validate()) {
+      await authController.signIn(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,23 +44,19 @@ class _LoginFormState extends State<LoginForm> {
         padding: const EdgeInsets.symmetric(vertical: SSizes.spaceBtwSections),
         child: Column(
           children: [
-            // Email
+            // EMAIL FIELD
             TextFormField(
               controller: _emailController,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.email_rounded),
                 labelText: STexts.email,
               ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter your email';
-                }
-                return null;
-              },
+              validator: (value) =>
+              value == null || value.isEmpty ? 'Please enter your email' : null,
             ),
             const SizedBox(height: SSizes.spaceBtwInputFields),
 
-            // Password
+            // PASSWORD FIELD
             TextFormField(
               controller: _passwordController,
               obscureText: _isObscure,
@@ -52,24 +64,16 @@ class _LoginFormState extends State<LoginForm> {
                 prefixIcon: const Icon(Icons.security),
                 labelText: STexts.password,
                 suffixIcon: IconButton(
-                  icon: Icon(
-                    _isObscure ? Icons.visibility_off : Icons.visibility,
-                  ),
-                  onPressed: () => setState(() {
-                    _isObscure = !_isObscure;
-                  }),
+                  icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _isObscure = !_isObscure),
                 ),
               ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter your password';
-                }
-                return null;
-              },
+              validator: (value) =>
+              value == null || value.isEmpty ? 'Please enter your password' : null,
             ),
             const SizedBox(height: SSizes.spaceBtwInputFields / 2),
 
-            // Remember Me + Forgot Password
+            // REMEMBER & FORGOT PASSWORD
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -77,9 +81,8 @@ class _LoginFormState extends State<LoginForm> {
                   children: [
                     Checkbox(
                       value: _rememberMe,
-                      onChanged: (value) {
-                        setState(() => _rememberMe = value ?? false);
-                      },
+                      onChanged: (value) =>
+                          setState(() => _rememberMe = value ?? false),
                     ),
                     const Text(STexts.rememberMe),
                   ],
@@ -95,32 +98,26 @@ class _LoginFormState extends State<LoginForm> {
 
             const SizedBox(height: SSizes.spaceBtwSections),
 
-            // 🔘 Sign In Button
-            Obx(() => SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: authController.isLoading.value
-                    ? null
-                    : () async {
-                  if (_formKey.currentState!.validate()) {
-                    await authController.login(
-                      _emailController.text.trim(),
-                      _passwordController.text.trim(),
-                    );
-                  }
-                },
-                child: authController.isLoading.value
-                    ? const CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                )
-                    : const Text(STexts.signIn),
+            // LOGIN BUTTON
+            Obx(
+                  () => SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed:
+                  authController.isLoading.value ? null : () => _handleLogin(),
+                  child: authController.isLoading.value
+                      ? const CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  )
+                      : const Text(STexts.signIn),
+                ),
               ),
-            )),
+            ),
 
             const SizedBox(height: SSizes.spaceBtwItems),
 
-            // Outlined Create Account
+            // CREATE ACCOUNT BUTTON
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(

@@ -85,23 +85,39 @@ class NotificationService {
     }
   }
 
+
   // ----------------------------------------------------------
-  // OVERDUE CUSTOMER DETECTOR
+  // CHECK OVERDUE CUSTOMERS (NEW SCHEMA: remaining_amount)
   // ----------------------------------------------------------
   Future<void> checkOverdueCustomers({int overdueDays = 30}) async {
+    final now = DateTime.now().toUtc();
+
+    // remaining_amount > 0 matlab abhi bhi qarz baqi hai
     final rows = await client
         .from('customer_debts')
-        .select('*, customers(name, phone)')
-        .eq('is_cleared', false); // assume you track cleared debts
+        .select('''
+          id,
+          customer_id,
+          debt_amount,
+          remaining_amount,
+          due_date,
+          customers(name, phone)
+        ''')
+        .gt('remaining_amount', 0); // 👈 NO is_cleared ANYMORE
 
-    for (final r in (rows as List)) {
-      final dueDate =
-      r['due_date'] == null ? null : DateTime.parse(r['due_date']);
-      if (dueDate == null) continue;
+    if (rows == null || (rows as List).isEmpty) return;
 
-      final diffDays = DateTime.now().difference(dueDate).inDays;
+    for (final r in rows) {
+      final dueDateStr = r['due_date'] as String?;
+      if (dueDateStr == null) continue;
+
+      final dueDate = DateTime.parse(dueDateStr).toUtc();
+      final diffDays = now.difference(dueDate).inDays;
+
+      // sirf woh customers jinka due X din se zyada purana ho
       if (diffDays >= overdueDays) {
-        final cust = r['customers'];
+        final cust = r['customers'] ?? {};
+
         await createNotification(
           type: 'overdue_customer',
           title: 'Overdue: ${cust['name']}',
@@ -117,6 +133,7 @@ class NotificationService {
       }
     }
   }
+
 
   // ----------------------------------------------------------
   // GENERATE CUSTOMER STATEMENT PDF + SHARE
@@ -139,9 +156,10 @@ class NotificationService {
     // 2) Fetch debts with bills
     final debts = await client
         .from('customer_debts')
-        .select('id, bill_id, debt_amount, remaining_amount, created_at, due_date, bills(bill_no, total)')
-        .eq('customer_id', customerId)
-        .order('created_at', ascending: true);
+        .select('id, customer_id, bill_id, debt_amount, paid_amount, remaining_amount, due_date, customers(name)')
+        .gt('remaining_amount', 0)          // ✅ only unpaid debts
+        .lte('due_date', DateTime.now().add(const Duration(days: 2)).toIso8601String());
+
 
     // 3) Fetch payments (assuming customer_payments has bill_id + payment_date)
     final payments = await client

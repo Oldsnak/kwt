@@ -47,6 +47,8 @@ dependencies:
   image: ^4.5.4
   flutter_svg: ^2.0.8
   get: ^4.7.2
+  gallery_saver_plus: ^3.2.9
+
 
 dev_dependencies:
   flutter_test:

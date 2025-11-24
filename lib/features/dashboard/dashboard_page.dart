@@ -6,13 +6,13 @@ import 'package:kwt/app/theme/colors.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/controllers/category_controller.dart';
 import 'package:kwt/core/controllers/product_controller.dart';
+import 'package:kwt/features/dashboard/widgets/dashboard_categories.dart';
 import 'package:kwt/widgets/custom_appbar/custom_appbar.dart';
 import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.dart';
 import 'package:kwt/widgets/layouts/grid_layout.dart';
 import 'package:kwt/widgets/products/product_cards/product_card_vertical.dart';
-import '../../../core/controllers/notification_controller.dart';
-import '../../product_detail/view/product_detail_page.dart';
-import 'widgets/dashboard_categories.dart';
+import '../../core/controllers/notification_controller.dart';
+import '../product_detail/product_detail_page.dart';
 
 class DashboardPage extends StatelessWidget {
   DashboardPage({super.key});
@@ -136,20 +136,25 @@ class DashboardPage extends StatelessWidget {
                   itemCount: products.length,
                   itemBuilder: (_, index) {
                     final p = products[index];
-
-                    /// SAFE values from ProductModel
-                    final remaining = p.stockQuantity ?? 0;
-                    final totalStock = remaining == 0 ? 1 : remaining;
-                    final price = p.sellingRate?.round() ?? 0;
+                    final int remaining = p.stockQuantity;
+                    final int purchase_price=p.purchaseRate.round();
+                    final int sold = p.totalSold ?? 0;
+                    final int totalStock = remaining + sold;
+                    final int price = p.sellingRate.round();
+                    final double netProfit = p.totalProfit ?? 0;
 
                     return ProductCardVertical(
                       remaining: remaining,
-                      total_stock: totalStock,
+                      purchasePrice: purchase_price,
+                      sold: sold,
                       price: price,
-                      name: p.name ?? "",
-                      total_profit: 0, // future logic for real profit calculation
+                      name: p.name,
+                      totalProfit: netProfit,
+                      totalStock: totalStock,
                       onTap: () => Get.to(() => ProductDetailPage(productId: p.id!)),
                     );
+
+
                   },
                 );
               }),

@@ -21,8 +21,8 @@ class UserProfileTile extends StatelessWidget {
         height: 50,
         padding: 0,
       ),
-      title: Text("Mudassar Naeem", style: Theme.of(context).textTheme.headlineSmall!.apply(color: SColors.white),),
-      subtitle: Text("bazurgIndustries@gmail.com", style: Theme.of(context).textTheme.bodyMedium!.apply(color: SColors.white),),
+      title: Text("Babar Ahmed Butt", style: Theme.of(context).textTheme.headlineSmall!.apply(color: SColors.white),),
+      subtitle: Text("kashmir.waipers.traders@gmail.com", style: Theme.of(context).textTheme.bodyMedium!.apply(color: SColors.white),),
       trailing: IconButton(onPressed: onPressed, icon: Icon(Icons.edit, color: SColors.white,)),
     );
   }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:kwt/features/sell_product/widgets/sell_item_card.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:kwt/app/theme/colors.dart';
@@ -7,12 +8,22 @@ import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
 import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.dart';
 import 'package:kwt/widgets/texts/section_heading.dart';
-import 'package:kwt/features/sell_product/view/widgets/sell_item_card.dart';
 import 'add_item_page.dart';
 import 'checkout_page.dart';
 
 class SellPage extends StatefulWidget {
-  const SellPage({super.key});
+  final String? editingBillId;
+  final String? editingBillNo;
+  final String? editingCustomerName;
+  final List<Map<String, dynamic>>? editingItems;
+
+  const SellPage({
+    super.key,
+    this.editingBillId,
+    this.editingBillNo,
+    this.editingCustomerName,
+    this.editingItems
+  });
 
   @override
   State<SellPage> createState() => _SellPageState();
@@ -32,10 +43,32 @@ class _SellPageState extends State<SellPage> {
   bool showTrash = false;
 
   @override
+  @override
   void initState() {
     super.initState();
-    _fetchNextBillNo();
+
+    if (widget.editingBillId != null) {
+      /// EDIT MODE
+      billNo = widget.editingBillNo;
+      customerCtrl.text = widget.editingCustomerName ?? "";
+
+      billItems.clear();
+      for (final item in widget.editingItems!) {
+        billItems.add({
+          'id': item['product_id'],
+          'name': item['products']['name'],
+          'price': item['selling_rate'],
+          'pieces': item['quantity'],
+          'discount': item['discount_per_piece'],
+          'total': item['line_total'],
+        });
+      }
+    } else {
+      /// NEW BILL
+      _fetchNextBillNo();
+    }
   }
+
 
   // ---------------------------------------------------------------------------
   // FETCH NEXT BILL NUMBER: pattern [A-Z][A-Z0-9]{4}

@@ -17,12 +17,18 @@ class SalesBillController extends GetxController {
     loadBills();
   }
 
+  // ================================================================
+  // LOAD ALL BILLS WITH SALESPERSON NAME
+  // ================================================================
   Future<void> loadBills() async {
     loading.value = true;
 
     final res = await client
         .from("bills")
-        .select("*, user_profiles(name)")
+        .select("""
+          *,
+          salesperson:user_profiles(full_name)
+        """)
         .order("created_at", ascending: false);
 
     allBills.value = List<Map<String, dynamic>>.from(res);
@@ -31,7 +37,9 @@ class SalesBillController extends GetxController {
     loading.value = false;
   }
 
-  /// 🔍 SEARCH BY BILL NUMBER
+  // ================================================================
+  // SEARCH BY BILL NUMBER
+  // ================================================================
   void search(String query) {
     if (query.isEmpty) {
       filteredBills.value = allBills;
@@ -40,20 +48,27 @@ class SalesBillController extends GetxController {
 
     filteredBills.value = allBills
         .where((b) =>
-        b['bill_no'].toString().toLowerCase().contains(query.toLowerCase()))
+        b['bill_no']
+            .toString()
+            .toLowerCase()
+            .contains(query.toLowerCase()))
         .toList();
   }
 
-  /// 👤 FILTER BY SALESPERSON
+  // ================================================================
+  // FILTER BY SALESPERSON
+  // ================================================================
   void filterBySalesPerson(String salesPersonId) {
     activeSalesPerson.value = salesPersonId;
 
     filteredBills.value = allBills
-        .where((b) => b['created_by'] == salesPersonId)
+        .where((b) => b['salesperson_id'] == salesPersonId)
         .toList();
   }
 
-  /// 🔄 RESET FILTER — "All" button
+  // ================================================================
+  // RESET FILTER
+  // ================================================================
   void resetFilter() {
     activeSalesPerson.value = "";
     filteredBills.value = allBills;

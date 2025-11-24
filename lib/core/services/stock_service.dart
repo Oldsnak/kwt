@@ -26,9 +26,8 @@ class StockService {
     required double sellingRate,
     required DateTime receivedDate,
   }) async {
-    // -------------------------
-    // Insert into stock_entries
-    // -------------------------
+
+    /// 1. Insert new stock batch
     await _client.from('stock_entries').insert({
       'product_id': productId,
       'quantity': quantity,
@@ -37,19 +36,23 @@ class StockService {
       'received_date': receivedDate.toIso8601String(),
     });
 
-    // -------------------------
-    // Update product
-    // -------------------------
-    await _client.rpc(
-      'increase_product_stock',
-      params: {
-        'p_product_id': productId,
-        'p_qty': quantity,
-        'p_purchase_rate': purchaseRate,
-        'p_selling_rate': sellingRate,
-      },
-    );
+    /// 2. Get current latest product info
+    final current = await _client
+        .from('products')
+        .select('stock_quantity')
+        .eq('id', productId)
+        .single();
+
+    final newQty = (current['stock_quantity'] ?? 0) + quantity;
+
+    /// 3. Update product with NEW selling/purchase rate
+    await _client.from('products').update({
+      'stock_quantity': newQty,
+      'purchase_rate': purchaseRate,
+      'selling_rate': sellingRate,
+    }).eq('id', productId);
   }
+
 
   // ===========================================================================
   // GET FULL STOCK HISTORY OF A PRODUCT (Latest First)

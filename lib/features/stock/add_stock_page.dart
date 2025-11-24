@@ -35,27 +35,15 @@ class _AddStockPageState extends State<AddStockPage> {
     try {
       isLoading.value = true;
 
-      // 1️⃣ Insert new stock entry
-      await _client.from('stock_entries').insert({
-        'product_id': widget.productId,
-        'quantity': quantity,
-        'purchase_rate': purchaseRate,
-        'selling_rate': sellingRate,
-        'received_date': DateTime.now().toIso8601String(),
-      });
-
-      // 2️⃣ Update product's total stock quantity
-      final current = await _client
-          .from('products')
-          .select('stock_quantity')
-          .eq('id', widget.productId)
-          .single();
-
-      final newStock = (current['stock_quantity'] ?? 0) + quantity;
-      await _client
-          .from('products')
-          .update({'stock_quantity': newStock})
-          .eq('id', widget.productId);
+      final res = await _client.rpc(
+        'add_stock_and_update_price',
+        params: {
+          'p_product_id': widget.productId,
+          'p_quantity': quantity,
+          'p_purchase_rate': purchaseRate,
+          'p_selling_rate': sellingRate,
+        },
+      );
 
       Get.back(result: true);
       Get.snackbar("Success", "Stock added successfully!");

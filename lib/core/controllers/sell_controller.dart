@@ -1,35 +1,25 @@
-// lib/core/controllers/sell_controller.dart
-
 import 'package:get/get.dart';
-import '../models/product_model.dart';
-import '../models/sale_model.dart';
-import '../services/product_scan_service.dart';
-import '../services/bill_service.dart';
-import '../services/sales_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SellController extends GetxController {
-  final ProductScanService _productService = ProductScanService();
-  final BillService _billService = BillService();
-  final SalesService _salesService = SalesService();
+  final SupabaseClient _client = Supabase.instance.client;
+
+  /// ITEMS stored exactly like your UI (map based)
+  RxList<Map<String, dynamic>> billItems = <Map<String, dynamic>>[].obs;
+
+  /// Customer name (optional)
+  RxString customerName = ''.obs;
+
+  /// Bill number (string pattern: A0000 → A0001 → …)
+  RxString billNo = ''.obs;
+
+  /// Flags
+  RxBool isLoading = false.obs;
+  RxString errorMessage = ''.obs;
 
   // ---------------------------------------------------------------------------
-  // STATES
+  // INIT – CALL AT START OR WHEN SELL PAGE OPENS
   // ---------------------------------------------------------------------------
-
-  final RxList<Sale> items = <Sale>[].obs;
-
-  final RxDouble subTotal = 0.0.obs;
-  final RxDouble totalDiscount = 0.0.obs;
-  final RxDouble finalTotal = 0.0.obs;
-
-  /// MUST USE RxnString for nullable String
-  final RxnString customerId = RxnString();
-  final RxnString salespersonId = RxnString();
-
-  final RxString billNo = "-----".obs;
-
-  final RxBool isLoading = false.obs;
-  final RxString errorMessage = ''.obs;
 
   @override
   void onInit() {
@@ -38,144 +28,140 @@ class SellController extends GetxController {
   }
 
   // ---------------------------------------------------------------------------
-  // LOAD NEXT BILL #
+  // FETCH NEXT BILL NUMBER (RPC recommended)
   // ---------------------------------------------------------------------------
 
   Future<void> loadNextBillNo() async {
     try {
       isLoading.value = true;
-      errorMessage.value = '';
+      final result = await _client.rpc('generate_next_bill_no');
 
-      final next = await _billService.getNextBillNumber();
-      billNo.value = next;
-
+      billNo.value = (result as String?) ?? "A0000";
     } catch (e) {
-      errorMessage.value = "Failed to load bill number: $e";
+      billNo.value = "A0000"; // fallback
+      print("Bill No fetch error → $e");
     } finally {
       isLoading.value = false;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // SCAN BARCODE → PRODUCT → ADD TO LIST
+  // CALCULATE TOTALS
   // ---------------------------------------------------------------------------
-
-  Future<void> addScannedProduct(String barcode) async {
-    try {
-      isLoading.value = true;
-      errorMessage.value = '';
-
-      final product = await _productService.getProductByBarcode(barcode);
-
-      if (product == null) {
-        errorMessage.value = "No product found for barcode: $barcode";
-        return;
-      }
-
-      addNewItem(
-        product: product,
-        quantity: 1,
-        discount: 0,
-      );
-
-    } catch (e) {
-      errorMessage.value = "Scan failed: $e";
-    } finally {
-      isLoading.value = false;
+  double get subTotal {
+    double sum = 0;
+    for (final item in billItems) {
+      final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+      final pcs = (item['pieces'] as num?)?.toInt() ?? 0;
+      sum += price * pcs;
     }
+    return sum;
   }
 
-  // ---------------------------------------------------------------------------
-  // ADD NEW ITEM (MANUAL OR SCANNED)
-  // ---------------------------------------------------------------------------
-
-  void addNewItem({
-    required Product product,
-    required int quantity,
-    required double discount,
-  }) {
-    final rate = product.sellingRate ?? 0;
-    final lineTotal = (rate - discount) * quantity;
-
-    items.add(
-      Sale(
-        id: null,
-        billId: "TEMP",
-        productId: product.id!,
-        quantity: quantity,
-        sellingRate: rate,
-        discountPerPiece: discount,
-        lineTotal: lineTotal,
-        productName: product.name ?? "",
-        barcode: product.barcode ?? "",
-      ),
-    );
-
-    _recalculateTotals();
-  }
-
-  // ---------------------------------------------------------------------------
-  // REMOVE ITEM
-  // ---------------------------------------------------------------------------
-
-  void removeItem(int index) {
-    items.removeAt(index);
-    _recalculateTotals();
-  }
-
-  // ---------------------------------------------------------------------------
-  // TOTAL CALCULATION
-  // ---------------------------------------------------------------------------
-
-  void _recalculateTotals() {
-    double st = 0;
-    double td = 0;
-
-    for (var item in items) {
-      st += item.sellingRate * item.quantity;
-      td += item.discountPerPiece * item.quantity;
+  double get totalDiscount {
+    double sum = 0;
+    for (final item in billItems) {
+      final disc = (item['discount'] as num?)?.toDouble() ?? 0.0;
+      final pcs = (item['pieces'] as num?)?.toInt() ?? 0;
+      sum += disc * pcs;
     }
+    return sum;
+  }
 
-    subTotal.value = st;
-    totalDiscount.value = td;
-    finalTotal.value = st - td;
+  double get total => subTotal - totalDiscount;
+
+  // ---------------------------------------------------------------------------
+  // ADD PRODUCT (after AddItemPage)
+  // ---------------------------------------------------------------------------
+
+  void addItem(Map<String, dynamic> newItem) {
+    billItems.add(newItem);
   }
 
   // ---------------------------------------------------------------------------
-  // FINALIZE BILL
+  // UPDATE PRODUCT (edit existing item)
+  // ---------------------------------------------------------------------------
+
+  void updateItem(int index, Map<String, dynamic> updated) {
+    billItems[index] = updated;
+    billItems.refresh();
+  }
+
+  // ---------------------------------------------------------------------------
+  // REMOVE PRODUCT
+  // ---------------------------------------------------------------------------
+
+  void removeItem(Map<String, dynamic> item) {
+    billItems.remove(item);
+  }
+
+  // ---------------------------------------------------------------------------
+  // FINALIZE BILL → CALL RPC create_sale_transaction
   // ---------------------------------------------------------------------------
 
   Future<String?> finalizeBill({
-    required bool isPaidFully,
-    required double? paidAmount,
+    required bool isFullyPaid,
+    required double paidAmount,
+    String? customerId,
+    String? salespersonId,
   }) async {
-    if (items.isEmpty) {
-      errorMessage.value = "Cannot finalize an empty bill.";
+    if (billItems.isEmpty) {
+      errorMessage.value = "Bill empty.";
       return null;
     }
 
     try {
       isLoading.value = true;
 
-      final billId = await _salesService.finalizeBill(
-        items: items.toList(),
-        customerId: customerId.value,
-        salespersonId: salespersonId.value,
-        isPaidFully: isPaidFully,
-        totalPaid: paidAmount ?? 0.0,
+      /// Prepare sales list exactly as RPC expects
+      final List<Map<String, dynamic>> saleLines = billItems.map((item) {
+        return {
+          "product_id": item['id'],
+          "quantity": item['pieces'],
+          "selling_rate": item['price'],
+          "discount_per_piece": item['discount'],
+        };
+      }).toList();
+
+      /// RPC call
+      final result = await _client.rpc(
+        'create_sale_transaction',
+        params: {
+          "p_bill_no": billNo.value,
+          "p_customer_id": customerId,       // can be null
+          "p_salesperson_id": salespersonId, // owner or salesperson
+          "p_total_items": _countTotalItems(),
+          "p_sub_total": subTotal,
+          "p_total_discount": totalDiscount,
+          "p_total": total,
+          "p_total_paid": paidAmount,
+          "p_is_fully_paid": isFullyPaid,
+          "p_sale_items": saleLines,
+        },
       );
 
+      /// Success → clear bill
       resetBill();
-      await loadNextBillNo();
-      return billId;
 
+      /// Always generate new bill code
+      await loadNextBillNo();
+
+      return result.toString();
     } catch (e) {
       errorMessage.value = "Checkout failed: $e";
+      print("Checkout error → $e");
       return null;
-
     } finally {
       isLoading.value = false;
     }
+  }
+
+  int _countTotalItems() {
+    int totalPieces = 0;
+    for (final item in billItems) {
+      totalPieces += (item['pieces'] as num?)?.toInt() ?? 0;
+    }
+    return totalPieces;
   }
 
   // ---------------------------------------------------------------------------
@@ -183,12 +169,7 @@ class SellController extends GetxController {
   // ---------------------------------------------------------------------------
 
   void resetBill() {
-    items.clear();
-    subTotal.value = 0;
-    totalDiscount.value = 0;
-    finalTotal.value = 0;
-
-    customerId.value = null;
-    salespersonId.value = null;
+    billItems.clear();
+    customerName.value = "";
   }
 }

@@ -1,177 +1,167 @@
+// lib/widgets/products/product_cards/product_card_vertical.dart
+
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
-import '../../../app/theme/colors.dart';
-import '../../../core/constants/app_sizes.dart';
-import '../../../core/utils/helpers.dart';
+
+import '../../../../app/theme/colors.dart';
+import '../../../../core/constants/app_sizes.dart';
+import '../../../../core/utils/helpers.dart';
 import 'card/rounded_container.dart';
 
 class ProductCardVertical extends StatelessWidget {
   const ProductCardVertical({
     super.key,
     required this.remaining,
-    required this.total_stock,
+    required this.totalStock,   // remaining + sold (last 7 days window from controller)
     required this.price,
     required this.name,
-    required this.total_profit,
-    this.onTap, // 👈 add this
+    required this.totalProfit,  // net profit (last 7 days)
+    required this.sold,         // total sold (last 7 days)
+    this.onTap,
+    required this.purchasePrice,
   });
 
   final int remaining;
-  final int total_stock;
+  final int totalStock;
+  final int sold;
   final int price;
+  final int purchasePrice;
   final String name;
-  final int total_profit;
-  final VoidCallback? onTap; // 👈 add this
+  final double totalProfit;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    int sold=total_stock-remaining;
-    final dark=SHelperFunctions.isDarkMode(context);
+    final dark = SHelperFunctions.isDarkMode(context);
+
+    // percentage of stock remaining
+    final double percent = totalStock == 0
+        ? 0
+        : (remaining / totalStock).clamp(0.0, 1.0);
+
+    final double avgProfit = sold == 0 ? 0 : (totalProfit / sold)-purchasePrice;
+    final double netProfit=totalProfit-(purchasePrice*sold);
+
+    String format1(double v) {
+      final s = v.toStringAsFixed(1);
+      return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+    }
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 180,
-        padding: EdgeInsets.all(1),
+        padding: const EdgeInsets.all(1),
         decoration: BoxDecoration(
+          color: dark ? Color(0xFF3C3C3C):SColors.borderPrimary,
+          borderRadius: BorderRadius.circular(SSizes.productImageRadius),
           boxShadow: [
             BoxShadow(
-              color: SColors.darkGrey.withOpacity(0.1),
-              blurRadius: 50,
-              spreadRadius: 7,
-              offset: Offset(0, 2)
-            )
+              color: Colors.black.withOpacity(0.35),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
           ],
-          borderRadius: BorderRadius.circular(SSizes.productImageRadius),
-          color: dark ? Color(0xFF3C3C3C):SColors.borderPrimary
+          // border: Border.all(
+          //   color: dark ? SColors.darkGrey : SColors.black,
+          //   width: 1.2,
+          // ),
         ),
         child: Column(
           children: [
-            // Thumbnail, wishlist Button, Discount Tag
+            /// ------------------ TOP: Circular stock indicator ------------------
             TRoundedContainer(
               height: 180,
               width: double.infinity,
-              padding: EdgeInsets.all(SSizes.sm),
+              padding: const EdgeInsets.all(SSizes.sm),
               backgroundColor: dark ? SColors.dark : SColors.buttonDisabled,
-              child: CircularPercentIndicator(
-                radius: 60,
-                lineWidth: 15,
-                backgroundColor: dark ? SColors.darkOptional : Colors.grey.shade400,
-                progressColor: SColors.primary,
-                percent: remaining / total_stock,
-                center: Text(
-                  remaining.toString(),
-                  style: Theme.of(context).textTheme.headlineSmall,
+              child: Center(
+                child: CircularPercentIndicator(
+                  radius: 60,
+                  lineWidth: 15,
+                  backgroundColor: dark ? SColors.darkOptional : Colors.grey.shade400,
+                  progressColor: SColors.primary,
+                  percent: percent,
+                  center: Text(
+                    remaining.toString(),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white),
+                  ),
+                  circularStrokeCap: CircularStrokeCap.round,
                 ),
-                circularStrokeCap: CircularStrokeCap.round,
               ),
             ),
-            SizedBox(height: SSizes.spaceBtwItems/2,),
 
-            // -- Details
+            const SizedBox(height: SSizes.spaceBtwItems / 2),
+
+            /// ------------------ BOTTOM: Info rows ------------------
             Padding(
               padding: EdgeInsets.symmetric(horizontal: SSizes.lg),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  SizedBox(width: double.infinity,),
+                  const SizedBox(width: double.infinity),
                   Text(
                     name,
-                    style: Theme.of(context).textTheme.headlineSmall,
-                    overflow: TextOverflow.ellipsis, // 👈 this adds "..."
-                    maxLines: 1, // 👈 limit to one line
-                    softWrap: false, // 👈 prevent wrapping to next line
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: Colors.white,),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    softWrap: false,
                   ),
-                  // Divider(color: TColors.primary,),
-                  SizedBox(height: SSizes.xs,),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Price:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),),
-                      Text('$price', textDirection: TextDirection.rtl, style: TextStyle(fontWeight: FontWeight.bold),),
-                    ],
+                  const SizedBox(height: SSizes.xs),
+
+                  // Price Row
+                  _infoRow(
+                    context: context,
+                    label: 'Price:',
+                    value: price.toString(),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Avg Profit:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),),
-                      Text(
-                        sold != 0
-                            ? (() {
-                          final value = total_profit / sold;
-                          final formatted = value.toStringAsFixed(1);
-                          // Remove trailing ".0" if it's a whole number
-                          return formatted.endsWith('.0') ? formatted.substring(0, formatted.length - 2) : formatted;
-                        })()
-                            : '0',
-                        textDirection: TextDirection.rtl,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
+
+                  // Avg Profit Row
+                  _infoRow(
+                    context: context,
+                    label: 'Avg Profit:',
+                    value: format1(avgProfit),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Net Profit', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),),
-                      Text('$total_profit', textDirection: TextDirection.rtl, style: TextStyle(fontWeight: FontWeight.bold),),
-                    ],
+
+                  // Net Profit Row
+                  _infoRow(
+                    context: context,
+                    label: 'Net Profit',
+                    value: format1(netProfit),
                   ),
                 ],
               ),
             ),
-
-            // Spacer(),
-            //
-            // Container(
-            //   width: double.infinity,
-            //   decoration: BoxDecoration(
-            //     border: Border.all( color: TColors.primary),
-            //     borderRadius: BorderRadius.only(
-            //       bottomLeft: Radius.circular(TSizes.cardRdiusMd+5),
-            //       bottomRight: Radius.circular(TSizes.productImageRadius)
-            //     )
-            //   ),
-            //   child: Row(
-            //     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            //     children: [
-            //       //Price
-            //       Flexible(
-            //         flex: 3,
-            //         child: Center(child: Text("Price: $price", style: Theme.of(context).textTheme.headlineSmall,)),
-            //       ),
-            //       Flexible(
-            //         child: Container(
-            //           decoration: BoxDecoration(
-            //             color: TColors.primary,
-            //             borderRadius: BorderRadius.only(
-            //               topLeft: Radius.circular(TSizes.cardRdiusMd),
-            //               bottomRight: Radius.circular(TSizes.productImageRadius)
-            //             )
-            //           ),
-            //           child: SizedBox(
-            //             width: TSizes.iconLg*1.2,
-            //             height: TSizes.iconLg*1.2,
-            //             child: Center(
-            //               child: Icon(
-            //                 Icons.add,
-            //                 color: dark?TColors.dark:TColors.light,
-            //               ),
-            //             )
-            //           ),
-            //         ),
-            //       )
-            //     ],
-            //   ),
-            // )
           ],
         ),
       ),
     );
   }
+
+  Widget _infoRow({
+    required BuildContext context,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          value,
+          textDirection: TextDirection.rtl,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
 }
-
-
-
-
-
-

@@ -6,10 +6,10 @@ import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
 import 'package:kwt/widgets/custom_shapes/containers/glossy_container.dart';
 
-import '../../../app/theme/colors.dart';
-import '../../../core/controllers/stock_controller.dart';
-import '../../../core/models/product_model.dart';
-import '../../stock/view/add_stock_page.dart';
+import '../../app/theme/colors.dart';
+import '../../core/controllers/stock_controller.dart';
+import '../../core/models/product_model.dart';
+import '../stock/add_stock_page.dart';
 
 class ProductDetailPage extends StatelessWidget {
   final String productId;

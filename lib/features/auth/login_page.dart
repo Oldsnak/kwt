@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-
 import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.dart';
 import 'package:kwt/widgets/login_signup/login_form.dart';
 import 'package:kwt/widgets/login_signup/formDivider.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/constants/app_images.dart';
 import 'package:kwt/core/utils/device_utility.dart';
-import 'package:kwt/features/auth/controller/auth_controller.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final authController = Get.put(AuthController());
 
     return Scaffold(
       body: GestureDetector(

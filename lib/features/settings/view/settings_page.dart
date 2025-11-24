@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
+import 'package:kwt/features/salesperson/salesperson_list_page.dart';
+import 'package:kwt/features/settings/view/remove_items_page.dart';
 import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.dart';
 import 'package:kwt/widgets/list_tiles/settings_menu_tile.dart';
 import 'package:kwt/widgets/list_tiles/user_profile_tile.dart';
@@ -8,10 +10,9 @@ import 'package:kwt/widgets/texts/section_heading.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/app/theme/colors.dart';
 import 'package:kwt/features/settings/view/add_item_page.dart';
-import 'package:kwt/features/settings/view/registered_customers_page.dart';
-import 'package:kwt/features/settings/view/salesmen_page.dart';
 import 'package:kwt/features/settings/view/notifications_page.dart';
 import '../../../widgets/custom_appbar/appbar.dart';
+import '../../registered_customers/registered_customers_page.dart';
 import '../controller/download_barcodes_page.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -69,16 +70,17 @@ class SettingsPage extends StatelessWidget {
                     "Registered customers and their pending dues",
                     onTap: () => Get.to(() => const RegisteredCustomersPage()),
                   ),
-                  const SettingsMenuTile(
+                  SettingsMenuTile(
                     icon: Iconsax.trash,
                     title: "Remove Item",
                     subTitle: "Remove item from store",
+                    onTap: () => Get.to(() => const RemoveItemsPage()),
                   ),
                   SettingsMenuTile(
                     icon: Iconsax.people,
                     title: "Sales Men",
                     subTitle: "Handle application access",
-                    onTap: () => Get.to(() => const SalesmenPage()),
+                    onTap: () => Get.to(() => const SalesPersonListPage()),
                   ),
                   SettingsMenuTile(
                     icon: Iconsax.notification,

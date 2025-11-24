@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/user_profile.dart';
 import 'supabase_service.dart';
 import 'package:kwt/core/utils/device_identifier.dart';
 
@@ -7,18 +8,19 @@ class AuthService {
 
   static User? get currentUser => _client.auth.currentUser;
 
-  /// LOGIN
-  static Future<AuthResponse?> signIn(String email, String password) async {
+  // ----------------------------------------------------------
+  // LOGIN
+  // ----------------------------------------------------------
+  static Future<AuthResponse> signIn(String email, String password) async {
     try {
       final res = await _client.auth.signInWithPassword(
         email: email,
         password: password,
       );
 
-      if (res.user == null) throw Exception("Invalid login credentials.");
-
-      // verify device after successful login
-      await _verifyDevice(res.user!.id);
+      if (res.user == null) {
+        throw Exception("Invalid login credentials.");
+      }
 
       return res;
     } catch (e) {
@@ -27,69 +29,122 @@ class AuthService {
     }
   }
 
-  /// LOGOUT
+  // ----------------------------------------------------------
+  // LOGOUT
+  // ----------------------------------------------------------
   static Future<void> signOut() async {
     await _client.auth.signOut();
   }
 
-  /// CHECK IF USER IS ADMIN (from user_profiles)
+  // ----------------------------------------------------------
+  // CHECK ADMIN FLAG
+  // ----------------------------------------------------------
   static Future<bool> isAdmin() async {
     final user = currentUser;
     if (user == null) return false;
 
     final data = await _client
-        .from('user_profiles')
-        .select('is_admin')
-        .eq('id', user.id)
+        .from("user_profiles")
+        .select("is_admin")
+        .eq("id", user.id)
         .maybeSingle();
 
-    return (data?['is_admin'] ?? false) as bool;
+    return (data?["is_admin"] ?? false) as bool;
   }
 
-  /// DEVICE AUTHORIZATION CHECK (NEW VERSION)
-  /// Reads from `devices` table
-  static Future<bool> isDeviceAuthorized(String deviceUid) async {
-    final user = currentUser;
-    if (user == null) return false;
+  // ----------------------------------------------------------
+  // DEVICE AUTHORIZATION — Owner strict, Salesperson always allowed
+  // ----------------------------------------------------------
+  static Future<bool> verifyDeviceWithEdge(String userId) async {
+    // Current user ka profile nikaal lo
+    final profile = await fetchCurrentUserProfile();
+    if (profile == null) {
+      // Agar profile hi nahi mila to device ke basis pe block mat karo
+      return true;
+    }
 
-    final res = await _client
-        .from('devices')
-        .select()
-        .eq('user_id', user.id)
-        .eq('device_uid', deviceUid)
-        .eq('is_authorized', true)
-        .maybeSingle();
+    // ------------------------------------------
+    // SALESPERSON → ALWAYS ALLOW (never block)
+    // ------------------------------------------
+    if (profile.role == 'salesperson') {
+      try {
+        final deviceUid = await DeviceIdentifier.getId();
+        final deviceName = await DeviceIdentifier.getName();
 
-    return res != null;
-  }
-
-  /// VERIFY DEVICE OR REGISTER NEW DEVICE (NEW VERSION)
-  /// Writes into `devices` table
-  static Future<void> _verifyDevice(String userId) async {
-    final deviceUid = await DeviceIdentifier.getId();
-    final deviceName = await DeviceIdentifier.getName();
-
-    // check if device entry exists
-    final existing = await _client
-        .from('devices')
-        .select()
-        .eq('user_id', userId)
-        .eq('device_uid', deviceUid)
-        .maybeSingle();
-
-    if (existing == null) {
-      // register new device as authorized
-      await _client.from('devices').insert({
-        'user_id': userId,
-        'device_uid': deviceUid,
-        'device_name': deviceName,
-        'is_authorized': true,
-      });
-    } else {
-      // if exists but unauthorized
-      if (existing['is_authorized'] == false) {
-        throw Exception("This device is not authorized.");
+        // Sirf notification / device register ke liye call
+        await _client.functions.invoke(
+          "device_authorization",
+          body: {
+            "action": "register_device",
+            "payload": {
+              "device_uid": deviceUid,
+              "device_name": deviceName,
+              "user_id": userId,
+            },
+          },
+        );
+      } catch (e) {
+        print("verifyDeviceWithEdge salesperson error: $e");
       }
+
+      // Hamesha allow
+      return true;
+    }
+
+    // ------------------------------------------
+    // OWNER → strict device check
+    // ------------------------------------------
+    try {
+      final deviceUid = await DeviceIdentifier.getId();
+      final deviceName = await DeviceIdentifier.getName();
+
+      final result = await _client.functions.invoke(
+        "device_authorization",
+        body: {
+          "action": "register_device",
+          "payload": {
+            "device_uid": deviceUid,
+            "device_name": deviceName,
+            "user_id": userId,
+          },
+        },
+      );
+
+      final data = result.data;
+
+      // Owner ke liye device authorized hona zaroori hai
+      return data?['is_authorized'] == true;
+    } catch (e) {
+      print("verifyDeviceWithEdge owner error: $e");
+      return false;
+    }
+  }
+
+  // ----------------------------------------------------------
+  // FETCH USER PROFILE — SAFE VERSION
+  // ----------------------------------------------------------
+  static Future<UserProfile?> fetchCurrentUserProfile() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return null;
+
+    try {
+      final res = await _client
+          .from("user_profiles")
+          .select()
+          .eq("id", user.id)
+          .maybeSingle();
+
+      if (res == null) return null;
+
+      if (res is! Map) {
+        print("Profile is not Map: $res");
+        return null;
+      }
+
+      return UserProfile.fromMap(res);
+    } catch (e) {
+      print("fetchCurrentUserProfile error: $e");
+      return null;
     }
   }
 }

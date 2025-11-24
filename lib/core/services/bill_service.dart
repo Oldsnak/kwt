@@ -15,16 +15,17 @@ class BillService {
     final response = await _client
         .from('bills')
         .select('bill_no')
-        .order('created_at', ascending: false)
+        .order('bill_no', ascending: false)
         .limit(1);
 
     if (response.isEmpty) {
-      return "A0000"; // first ever bill
+      return "A0000"; // first bill
     }
 
     final last = response.first['bill_no'] as String;
     return _incrementBillNumber(last);
   }
+
 
   /// Logic for A0000 → A0001 → A0002 ... A0009 → A000A ... A000Z →
   /// A0010 → ... A00ZZ → ... A0ZZZ → A1000 ... → ZZZZZ
