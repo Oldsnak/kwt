@@ -10,33 +10,27 @@ class SalesController extends GetxController {
   final BillService _billService = BillService();
   final SalesService _salesService = SalesService();
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // REACTIVE STATES
-  // ---------------------------------------------------------------------------
-
-  /// All bills (last 7 days OR filtered)
+  // ===========================================================================
   final RxList<Bill> bills = <Bill>[].obs;
-
-  /// Items of a specific bill
   final RxList<Sale> billItems = <Sale>[].obs;
 
-  /// Loading states
   final RxBool isLoadingBills = false.obs;
   final RxBool isLoadingBillItems = false.obs;
 
-  /// For errors
   final RxString errorMessage = ''.obs;
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // LOAD LAST 7 DAYS BILLS
-  // ---------------------------------------------------------------------------
-
+  // ===========================================================================
   Future<void> loadLast7DaysBills() async {
     try {
       isLoadingBills.value = true;
-      errorMessage.value = '';
+      errorMessage.value = "";
 
       final data = await _billService.getLast7DaysBills();
+
       bills.assignAll(data);
     } catch (e) {
       errorMessage.value = "Failed to load bills: $e";
@@ -45,25 +39,26 @@ class SalesController extends GetxController {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // SEARCH BILL BY BILL NUMBER (A0001, B0Z23 etc.)
-  // ---------------------------------------------------------------------------
-
+  // ===========================================================================
+  // SEARCH BILL BY NUMBER
+  // ===========================================================================
   Future<void> searchBill(String billNo) async {
-    if (billNo.trim().isEmpty) {
+    final q = billNo.trim();
+
+    if (q.isEmpty) {
       await loadLast7DaysBills();
       return;
     }
 
     try {
       isLoadingBills.value = true;
-      errorMessage.value = '';
+      errorMessage.value = "";
 
-      final bill = await _billService.searchBill(billNo);
+      final bill = await _billService.searchBill(q);
 
       if (bill == null) {
         bills.clear();
-        errorMessage.value = "No bill found with number $billNo.";
+        errorMessage.value = "No bill found with number $q.";
         return;
       }
 
@@ -75,14 +70,18 @@ class SalesController extends GetxController {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // FILTER BILLS BY SALESPERSON
-  // ---------------------------------------------------------------------------
-
+  // ===========================================================================
+  // FILTER BY SALESPERSON
+  // ===========================================================================
   Future<void> filterBySalesperson(String salespersonId) async {
+    if (salespersonId.trim().isEmpty) {
+      await loadLast7DaysBills();
+      return;
+    }
+
     try {
       isLoadingBills.value = true;
-      errorMessage.value = '';
+      errorMessage.value = "";
 
       final data =
       await _billService.getBillsBySalesperson(salespersonId);
@@ -95,23 +94,18 @@ class SalesController extends GetxController {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // LOAD FULL BILL DETAILS (bill + items)
-  // For Bill Detail Page or popup
-  // ---------------------------------------------------------------------------
-
+  // ===========================================================================
+  // LOAD BILL DETAILS (header + items)
+  // ===========================================================================
   Future<void> loadBillDetails(String billId) async {
     try {
       isLoadingBillItems.value = true;
-      errorMessage.value = '';
+      errorMessage.value = "";
 
       final billData = await _billService.getBillWithItems(billId);
 
-      Bill bill = billData['bill'];
-      List<Sale> items = billData['items'];
-
-      billItems.assignAll(items);
-
+      // header already inside billData but your UI loads only items
+      billItems.assignAll(billData['items']);
     } catch (e) {
       errorMessage.value = "Failed to load bill details: $e";
     } finally {

@@ -1,9 +1,7 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../app/theme/colors.dart';
-import '../../../../core/controllers/sales_bills_controller.dart';
 import '../../../../core/utils/helpers.dart';
 
 class SalesPersonIcon extends StatelessWidget {
@@ -11,12 +9,12 @@ class SalesPersonIcon extends StatelessWidget {
     super.key,
     required this.image,
     required this.title,
-    required this.salesPersonId,   // ← NEW
+    required this.salesPersonId,
     this.onTap,
   });
 
   final String image, title;
-  final String salesPersonId;    // ← NEW
+  final String salesPersonId;
   final VoidCallback? onTap;
 
   @override
@@ -24,12 +22,7 @@ class SalesPersonIcon extends StatelessWidget {
     final bool dark = SHelperFunctions.isDarkMode(context);
 
     return GestureDetector(
-      onTap: onTap ??
-              () {
-            // DEFAULT FILTER CALL
-            final controller = Get.find<SalesBillController>();
-            controller.filterBySalesPerson(salesPersonId);
-          },
+      onTap: onTap, // <-- FIX: Do NOT trigger old controller logic
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Column(

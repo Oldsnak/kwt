@@ -1,64 +1,79 @@
 // lib/core/services/product_scan_service.dart
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../models/product_model.dart';
+import 'package:flutter/material.dart';
 
 class ProductScanService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  /// Fetch a single product by its barcode.
-  ///
-  /// Used on Sell Page when salesperson scans a product.
-  /// Returns `Product` if found, otherwise `null`.
+  // ===========================================================================
+  // FETCH PRODUCT BY BARCODE (Sell Page Scan)
+  // ===========================================================================
   Future<Product?> getProductByBarcode(String barcode) async {
-    if (barcode.isEmpty) return null;
+    if (barcode.trim().isEmpty) return null;
 
-    final response = await _client
-        .from('products')
-        .select()
-        .eq('barcode', barcode)
-        .eq('is_active', true)
-        .maybeSingle();
+    try {
+      // print("📦 DB QUERY BARCODE → '$barcode'");
+      final response = await _client
+          .from('products')
+          .select()
+          .eq('barcode', barcode)
+          .eq('is_active', true)
+          .maybeSingle();
+      // print("📦 DB RESPONSE ROW → $response");
 
-    if (response == null) return null;
+      if (response == null) return null;
 
-    return Product.fromMap(response);
+      return Product.fromMap(response);
+    } catch (e) {
+      SnackBar(content:Text("❌ getProductByBarcode ERROR: $e"),);
+      return null; // salesperson should not see errors
+    }
   }
 
-  /// Fetch product by its id.
-  ///
-  /// Useful when you already have product_id from sales/stock tables
-  /// and want to show product detail.
+  // ===========================================================================
+  // FETCH PRODUCT BY ID (used in stock/sales lookup)
+  // ===========================================================================
   Future<Product?> getProductById(String productId) async {
-    final response = await _client
-        .from('products')
-        .select()
-        .eq('id', productId)
-        .maybeSingle();
+    if (productId.trim().isEmpty) return null;
 
-    if (response == null) return null;
+    try {
+      final response = await _client
+          .from('products')
+          .select()
+          .eq('id', productId)
+          .maybeSingle();
 
-    return Product.fromMap(response);
+      if (response == null) return null;
+
+      return Product.fromMap(response);
+    } catch (e) {
+      SnackBar(content:Text("❌ getProductById ERROR: $e"),);
+      return null;
+    }
   }
 
-  /// Search products by name (for search box on dashboard / add item popup).
-  ///
-  /// This is optional but very handy for:
-  /// - search bar on Dashboard
-  /// - manual item selection when barcode not available.
+  // ===========================================================================
+  // SEARCH PRODUCTS BY NAME (Dashboard search / Add Item Popup)
+  // ===========================================================================
   Future<List<Product>> searchProductsByName(String query) async {
-    if (query.trim().isEmpty) {
+    if (query.trim().isEmpty) return [];
+
+    try {
+      final response = await _client
+          .from('products')
+          .select()
+          .ilike('name', '%$query%')
+          .eq('is_active', true)
+          .order('name');
+
+      return response
+          .map<Product>((row) => Product.fromMap(row))
+          .toList();
+    } catch (e) {
+      SnackBar(content:Text("❌ searchProductsByName ERROR: $e"),);
       return [];
     }
-
-    final response = await _client
-        .from('products')
-        .select()
-        .ilike('name', '%$query%')
-        .eq('is_active', true)
-        .order('name');
-
-    return response.map<Product>((row) => Product.fromMap(row)).toList();
   }
 }

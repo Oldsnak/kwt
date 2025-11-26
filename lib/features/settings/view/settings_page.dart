@@ -13,7 +13,7 @@ import 'package:kwt/features/settings/view/add_item_page.dart';
 import 'package:kwt/features/settings/view/notifications_page.dart';
 import '../../../widgets/custom_appbar/appbar.dart';
 import '../../registered_customers/registered_customers_page.dart';
-import '../controller/download_barcodes_page.dart';
+import 'download_barcodes_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -61,7 +61,7 @@ class SettingsPage extends StatelessWidget {
                     icon: Iconsax.shopping_cart,
                     title: "Add New Item",
                     subTitle: "Add new item in store",
-                    onTap: () => Get.to(() => AddItemPage()),
+                    onTap: () => Get.to(() => AddNewItemPage()),
                   ),
                   SettingsMenuTile(
                     icon: Iconsax.bank,

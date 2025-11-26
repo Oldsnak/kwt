@@ -25,67 +25,46 @@ class _AddSalesPersonPageState extends State<AddSalesPersonPage> {
     final rawPhone = phoneCtrl.text.trim();
     final password = passwordCtrl.text.trim();
 
-    // BASIC VALIDATIONS
     if (name.isEmpty || rawPhone.isEmpty || password.length < 6) {
-      Get.snackbar(
-        "Invalid Input",
-        "Name, Phone aur kam az kam 6 characters ka password required hai.",
-      );
+      Get.snackbar("Invalid Input", "Name, Phone aur kam az kam 6 character ka password required hai.");
       return;
     }
 
-    // CLEAN PHONE (REMOVE ALL NON-DIGITS)
+    // Clean phone number
     final phone = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
-
     if (phone.length < 10) {
       Get.snackbar("Invalid Phone", "Phone number sahi format me nahi hai.");
       return;
     }
 
-    // FIXED EMAIL FORMAT: MUST START WITH LETTER
-    final email = "sp_$phone@salesperson.kwt.com";
-
     setState(() => isSaving = true);
 
     try {
-      // 1) Create Supabase Auth user
-      final authRes = await _client.auth.signUp(
-        email: email,
-        password: password,
+      // 🔥 MUST match updated Edge Function parameter names
+      final res = await _client.functions.invoke(
+        "create_salesperson",
+        body: {
+          "name": name,      // FIXED
+          "phone": phone,    // FIXED
+          "password": password, // FIXED
+        },
       );
 
-      if (authRes.user == null) {
-        throw Exception("Failed to create salesperson authentication account");
+      final data = res.data;
+
+      if (data == null || data['success'] != true) {
+        throw Exception(data?['error'] ?? "Failed to create salesperson.");
       }
 
-      final uid = authRes.user!.id;
-
-      // 2) Insert into user_profiles
-      await _client.from("user_profiles").insert({
-        "id": uid,
-        "full_name": name,
-        "phone": phone,
-        "role": "salesperson",
-        "is_admin": false,
-        "is_active": true,
-      });
-
       Get.back(result: true);
-
       Get.snackbar(
         "Success",
-        "Salesperson added successfully!",
+        "Salesperson created successfully!",
         backgroundColor: Colors.green,
         colorText: Colors.white,
       );
-
     } catch (e) {
-      Get.snackbar(
-        "Error",
-        e.toString(),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      Get.snackbar("Error", e.toString(), backgroundColor: Colors.red, colorText: Colors.white);
     } finally {
       setState(() => isSaving = false);
     }

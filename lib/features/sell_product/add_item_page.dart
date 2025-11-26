@@ -30,7 +30,7 @@ class AddItemPage extends StatefulWidget {
 }
 
 class _AddItemPageState extends State<AddItemPage> {
-  final ProductScanService _scanService = ProductScanService();
+  final ProductScanService _scanService = Get.find<ProductScanService>();
 
   final TextEditingController _quantityCtrl = TextEditingController();
   final TextEditingController _discountCtrl = TextEditingController();
@@ -58,7 +58,7 @@ class _AddItemPageState extends State<AddItemPage> {
       productData = {
         'id': p.id,
         'name': p.name,
-        'stock_quantity': p.stockQuantity ?? 0,
+        'stock_quantity': p.stockQuantity, // ✅ non-nullable in Product model
         'selling_rate': p.sellingRate,
       };
     } catch (e) {
@@ -231,7 +231,9 @@ class _AddItemPageState extends State<AddItemPage> {
                         ),
                       );
                       if (barcode != null && barcode.isNotEmpty) {
-                        await _fetchProductByBarcode(barcode);
+                        await _fetchProductByBarcode(
+                            barcode.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '')
+                        );
                       }
                     },
                   )

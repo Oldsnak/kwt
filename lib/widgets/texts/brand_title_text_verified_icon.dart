@@ -37,14 +37,6 @@ class BrandTitleWithVerifiedIcon extends StatelessWidget {
         ),
         SizedBox(width: SSizes.xs,),
         Icon(Icons.verified, color: iconColor, size: SSizes.iconXs,),
-        // Text(
-        //   "Zara",
-        //   overflow: TextOverflow.ellipsis,
-        //   maxLines: 1,
-        //   style: Theme.of(context).textTheme.labelMedium,
-        // ),
-        // SizedBox(width: TSizes.xs,),
-        // Icon(Icons.verified, color: TColors.primary, size: TSizes.iconXs,),
       ],
     );
   }

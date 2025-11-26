@@ -1,3 +1,4 @@
+import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -9,7 +10,7 @@ class SupabaseService {
       final res = await client.auth.signInWithPassword(email: email, password: password);
       return res;
     } catch (e) {
-      print('Supabase Login Error: $e');
+      Get.snackbar("Error", "❌ Supabase Login ERROR: $e",);
       rethrow;
     }
   }

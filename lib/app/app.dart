@@ -1,3 +1,4 @@
+// lib/app/app.dart
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:kwt/app/routes/app_pages.dart';

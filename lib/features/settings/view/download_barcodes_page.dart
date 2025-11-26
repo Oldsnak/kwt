@@ -31,8 +31,12 @@ class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
   Future<bool> _ensurePermission() async {
     if (!GetPlatform.isAndroid) return true;
 
-    if (await Permission.photos.request().isGranted) return true;
-    if (await Permission.storage.request().isGranted) return true;
+    // Try photos permission (Android 13+), then storage (older)
+    final photosStatus = await Permission.photos.request();
+    if (photosStatus.isGranted) return true;
+
+    final storageStatus = await Permission.storage.request();
+    if (storageStatus.isGranted) return true;
 
     Get.snackbar("Permission Required", "Please allow storage permission.");
     openAppSettings();
@@ -62,10 +66,17 @@ class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
     });
 
     try {
-      if (!await _ensurePermission()) return;
+      // 🔹 If permission denied, stop and reset state
+      final ok = await _ensurePermission();
+      if (!ok) {
+        setState(() => isDownloading = false);
+        return;
+      }
 
-      final products =
-      await _client.from("products").select("id, name, barcode");
+      final res = await _client.from("products").select("id, name, barcode");
+
+      final List<Map<String, dynamic>> products =
+      (res as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
       if (products.isEmpty) {
         Get.snackbar("No Products", "No products found in database");
@@ -96,7 +107,8 @@ class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
           height: 140,
         );
 
-        final Uint8List pngBytes = Uint8List.fromList(img.encodePng(canvas));
+        final Uint8List pngBytes =
+        Uint8List.fromList(img.encodePng(canvas));
 
         // SAVE TO TEMP FILE FIRST
         final path = await _saveTempImage(pngBytes, "KWT_$code");
@@ -129,7 +141,7 @@ class _DownloadBarcodesPageState extends State<DownloadBarcodesPage> {
   }
 
   // ------------------------------------------------------------
-  // UI
+  // UI (UNCHANGED)
   // ------------------------------------------------------------
   @override
   Widget build(BuildContext context) {

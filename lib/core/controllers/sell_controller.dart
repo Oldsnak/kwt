@@ -1,175 +1,163 @@
+// lib/core/controllers/sell_controller.dart
+
 import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/sale_model.dart';
+import '../services/bill_service.dart';
+import '../services/sales_service.dart';
+import '../utils/local_storage_helper.dart';
 
 class SellController extends GetxController {
   final SupabaseClient _client = Supabase.instance.client;
+  final BillService _billService = BillService();
+  final SalesService _salesService = SalesService();
 
-  /// ITEMS stored exactly like your UI (map based)
   RxList<Map<String, dynamic>> billItems = <Map<String, dynamic>>[].obs;
-
-  /// Customer name (optional)
   RxString customerName = ''.obs;
-
-  /// Bill number (string pattern: A0000 → A0001 → …)
   RxString billNo = ''.obs;
 
-  /// Flags
   RxBool isLoading = false.obs;
   RxString errorMessage = ''.obs;
 
-  // ---------------------------------------------------------------------------
-  // INIT – CALL AT START OR WHEN SELL PAGE OPENS
-  // ---------------------------------------------------------------------------
+  late final String userId;
 
   @override
   void onInit() {
     super.onInit();
-    loadNextBillNo();
+
+    final user = _client.auth.currentUser;
+    userId = user?.id ?? "unknown_user";
+
+    loadReservedOrNewBill();
   }
 
-  // ---------------------------------------------------------------------------
-  // FETCH NEXT BILL NUMBER (RPC recommended)
-  // ---------------------------------------------------------------------------
-
-  Future<void> loadNextBillNo() async {
+  Future<void> loadReservedOrNewBill() async {
     try {
       isLoading.value = true;
-      final result = await _client.rpc('generate_next_bill_no');
 
-      billNo.value = (result as String?) ?? "A0000";
+      final reserved = await LocalStorageHelper.getReservedBillNo(userId: userId);
+
+      if (reserved != null && reserved.isNotEmpty) {
+        billNo.value = reserved;
+        return;
+      }
+
+      final next = await _billService.getNextBillNumber();
+      billNo.value = next;
+
+      await LocalStorageHelper.saveReservedBillNo(
+        userId: userId,
+        billNo: next,
+      );
+
     } catch (e) {
-      billNo.value = "A0000"; // fallback
-      print("Bill No fetch error → $e");
+      print("❌ loadReservedOrNewBill error: $e");
+      billNo.value = "A0000";
     } finally {
       isLoading.value = false;
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // CALCULATE TOTALS
-  // ---------------------------------------------------------------------------
   double get subTotal {
-    double sum = 0;
-    for (final item in billItems) {
-      final price = (item['price'] as num?)?.toDouble() ?? 0.0;
-      final pcs = (item['pieces'] as num?)?.toInt() ?? 0;
-      sum += price * pcs;
-    }
-    return sum;
+    return billItems.fold(0.0, (sum, i) {
+      final rate = (i['price'] as num?)?.toDouble() ?? 0;
+      final qty = (i['pieces'] as num?)?.toInt() ?? 0;
+      return sum + (rate * qty);
+    });
   }
 
   double get totalDiscount {
-    double sum = 0;
-    for (final item in billItems) {
-      final disc = (item['discount'] as num?)?.toDouble() ?? 0.0;
-      final pcs = (item['pieces'] as num?)?.toInt() ?? 0;
-      sum += disc * pcs;
-    }
-    return sum;
+    return billItems.fold(0.0, (sum, i) {
+      final disc = (i['discount'] as num?)?.toDouble() ?? 0;
+      final qty = (i['pieces'] as num?)?.toInt() ?? 0;
+      return sum + (disc * qty);
+    });
   }
 
   double get total => subTotal - totalDiscount;
 
-  // ---------------------------------------------------------------------------
-  // ADD PRODUCT (after AddItemPage)
-  // ---------------------------------------------------------------------------
-
-  void addItem(Map<String, dynamic> newItem) {
-    billItems.add(newItem);
+  int get totalPieces {
+    return billItems.fold(0, (sum, i) {
+      return sum + ((i['pieces'] as num?)?.toInt() ?? 0);
+    });
   }
 
-  // ---------------------------------------------------------------------------
-  // UPDATE PRODUCT (edit existing item)
-  // ---------------------------------------------------------------------------
+  void addItem(Map<String, dynamic> item) => billItems.add(item);
 
   void updateItem(int index, Map<String, dynamic> updated) {
     billItems[index] = updated;
     billItems.refresh();
   }
 
-  // ---------------------------------------------------------------------------
-  // REMOVE PRODUCT
-  // ---------------------------------------------------------------------------
+  void removeItem(Map<String, dynamic> item) => billItems.remove(item);
 
-  void removeItem(Map<String, dynamic> item) {
-    billItems.remove(item);
-  }
-
-  // ---------------------------------------------------------------------------
-  // FINALIZE BILL → CALL RPC create_sale_transaction
-  // ---------------------------------------------------------------------------
-
+  // ===========================================================================
+  // FINALIZE BILL (UPDATED)
+  // ===========================================================================
   Future<String?> finalizeBill({
     required bool isFullyPaid,
     required double paidAmount,
     String? customerId,
     String? salespersonId,
   }) async {
+
     if (billItems.isEmpty) {
-      errorMessage.value = "Bill empty.";
+      errorMessage.value = "Bill is empty.";
+      return null;
+    }
+
+    if (billNo.value.isEmpty) {
+      errorMessage.value = "Bill number missing.";
       return null;
     }
 
     try {
       isLoading.value = true;
 
-      /// Prepare sales list exactly as RPC expects
-      final List<Map<String, dynamic>> saleLines = billItems.map((item) {
-        return {
-          "product_id": item['id'],
-          "quantity": item['pieces'],
-          "selling_rate": item['price'],
-          "discount_per_piece": item['discount'],
-        };
+      final saleModels = billItems.map((i) {
+        return Sale(
+          id: null,
+          billId: null,
+          productId: i['product_id'] ?? i['id'],   // <-- FIXED
+          quantity: (i['pieces'] as num?)?.toInt() ?? 0,
+          sellingRate: (i['price'] as num?)?.toDouble() ?? 0,
+          discountPerPiece: (i['discount'] as num?)?.toDouble() ?? 0,
+          soldAt: DateTime.now(),
+        );
       }).toList();
 
-      /// RPC call
-      final result = await _client.rpc(
-        'create_sale_transaction',
-        params: {
-          "p_bill_no": billNo.value,
-          "p_customer_id": customerId,       // can be null
-          "p_salesperson_id": salespersonId, // owner or salesperson
-          "p_total_items": _countTotalItems(),
-          "p_sub_total": subTotal,
-          "p_total_discount": totalDiscount,
-          "p_total": total,
-          "p_total_paid": paidAmount,
-          "p_is_fully_paid": isFullyPaid,
-          "p_sale_items": saleLines,
-        },
+
+      // 🔥 FINAL — now passing billNo
+      final billId = await _salesService.finalizeBill(
+        billNo: billNo.value,              // <-- FIXED
+        items: saleModels,
+        customerId: customerId,
+        salespersonId: salespersonId,
+        isPaidFully: isFullyPaid,
+        totalPaid: paidAmount,
       );
 
-      /// Success → clear bill
+      // Clear reserved bill
+      await LocalStorageHelper.clearReservedBillNo(userId: userId);
+
       resetBill();
+      await loadReservedOrNewBill();
 
-      /// Always generate new bill code
-      await loadNextBillNo();
+      return billId;
 
-      return result.toString();
     } catch (e) {
+      print("❌ finalizeBill error: $e");
       errorMessage.value = "Checkout failed: $e";
-      print("Checkout error → $e");
       return null;
+
     } finally {
       isLoading.value = false;
     }
   }
 
-  int _countTotalItems() {
-    int totalPieces = 0;
-    for (final item in billItems) {
-      totalPieces += (item['pieces'] as num?)?.toInt() ?? 0;
-    }
-    return totalPieces;
-  }
-
-  // ---------------------------------------------------------------------------
-  // RESET AFTER CHECKOUT
-  // ---------------------------------------------------------------------------
-
   void resetBill() {
     billItems.clear();
     customerName.value = "";
+    // billNo refresh handled above in loadReservedOrNewBill()
   }
 }

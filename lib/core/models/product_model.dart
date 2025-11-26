@@ -1,25 +1,22 @@
-// lib/core/models/product_model.dart
-
-/// Represents a product in the store.
-///
-/// Maps to `public.products` table:
-/// id, category_id, name, purchase_rate, selling_rate,
-/// stock_quantity, barcode, is_active, created_at
 class Product {
-  final String? id;                 // DB uuid (null before insert)
-  final String? categoryId;         // FK to categories.id
+  final String? id;                 // uuid
+  final String? categoryId;         // FK -> categories.id
+
   final String name;
-  final double purchaseRate;        // current purchase rate
-  final double sellingRate;         // current selling rate
-  final int stockQuantity;          // remaining stock
-  final String barcode;             // unique barcode
+  final double purchaseRate;
+  final double sellingRate;
+  final int stockQuantity;
+  final String barcode;
   final bool isActive;
   final DateTime? createdAt;
 
-  /// These fields are NOT stored in DB — only joined/calculated.
-  final String? categoryName;       // categories.name (joined)
-  final int? totalSold;             // analytics
-  final double? totalProfit;        // analytics
+  // ------------------------------------------------------------
+  // OPTIONAL (joined / computed only)
+  // ------------------------------------------------------------
+  final String? categoryName;       // categories(name)
+  final int? totalSold;             // computed in service
+  final double? totalProfit;        // computed in service
+  final double? avgProfit;          // computed in service (if needed)
 
   Product({
     this.id,
@@ -34,33 +31,49 @@ class Product {
     this.categoryName,
     this.totalSold,
     this.totalProfit,
+    this.avgProfit,
   });
 
-  /// Factory: Convert Supabase row into Product model
+  // ============================================================
+  // SAFE FROM MAP (Null-safe, type-safe, dynamic joins-safe)
+  // ============================================================
   factory Product.fromMap(Map<String, dynamic> map) {
     return Product(
       id: map['id'] as String?,
       categoryId: map['category_id'] as String?,
       name: map['name'] ?? '',
-      purchaseRate: (map['purchase_rate'] as num).toDouble(),
-      sellingRate: (map['selling_rate'] as num).toDouble(),
-      stockQuantity: (map['stock_quantity'] as int?) ?? 0,
+
+      purchaseRate: _toDouble(map['purchase_rate']),
+      sellingRate: _toDouble(map['selling_rate']),
+      stockQuantity: (map['stock_quantity'] as num?)?.toInt() ?? 0,
+
       barcode: map['barcode'] ?? '',
       isActive: map['is_active'] ?? true,
+
       createdAt: map['created_at'] != null
-          ? DateTime.parse(map['created_at'])
+          ? DateTime.tryParse(map['created_at'].toString())
           : null,
 
-      // optional calculated / joined fields
-      categoryName: map['category_name'],    // if joined
-      totalSold: map['total_sold'],          // if aggregated
+      // Joined fields (from category join)
+      categoryName: map['category_name'] ??
+          (map['categories'] is Map
+              ? map['categories']['name']
+              : null),
+
+      // Analytics (null-safe)
+      totalSold: (map['total_sold'] as num?)?.toInt(),
       totalProfit: map['total_profit'] != null
-          ? (map['total_profit'] as num).toDouble()
+          ? _toDouble(map['total_profit'])
+          : null,
+      avgProfit: map['avg_profit'] != null
+          ? _toDouble(map['avg_profit'])
           : null,
     );
   }
 
-  /// For inserting & updating product
+  // ============================================================
+  // TO MAP → Used for product insert & update
+  // ============================================================
   Map<String, dynamic> toMap() {
     return {
       'category_id': categoryId,
@@ -73,6 +86,9 @@ class Product {
     };
   }
 
+  // ============================================================
+  // COPY-WITH
+  // ============================================================
   Product copyWith({
     String? id,
     String? categoryId,
@@ -86,6 +102,7 @@ class Product {
     String? categoryName,
     int? totalSold,
     double? totalProfit,
+    double? avgProfit,
   }) {
     return Product(
       id: id ?? this.id,
@@ -100,6 +117,19 @@ class Product {
       categoryName: categoryName ?? this.categoryName,
       totalSold: totalSold ?? this.totalSold,
       totalProfit: totalProfit ?? this.totalProfit,
+      avgProfit: avgProfit ?? this.avgProfit,
     );
   }
+}
+
+// ===================================================================
+// HELPER → Safely convert dynamic values to double
+// (Supabase sometimes returns int, double, or string depending on query)
+// ===================================================================
+double _toDouble(dynamic v) {
+  if (v == null) return 0.0;
+  if (v is double) return v;
+  if (v is int) return v.toDouble();
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString()) ?? 0.0;
 }

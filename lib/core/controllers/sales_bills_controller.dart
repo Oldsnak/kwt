@@ -1,15 +1,21 @@
+// lib/core/controllers/sales_bill_controller.dart
+
 import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SalesBillController extends GetxController {
   final SupabaseClient client = Supabase.instance.client;
 
-  RxList<Map<String, dynamic>> allBills = <Map<String, dynamic>>[].obs;
-  RxList<Map<String, dynamic>> filteredBills = <Map<String, dynamic>>[].obs;
+  final RxList<Map<String, dynamic>> allBills = <Map<String, dynamic>>[].obs;
+  final RxList<Map<String, dynamic>> filteredBills = <Map<String, dynamic>>[].obs;
 
-  RxBool loading = false.obs;
+  final RxBool loading = false.obs;
 
-  RxString activeSalesPerson = "".obs;
+  /// active salesperson filter (id)
+  final RxString activeSalesPerson = "".obs;
+
+  /// search query
+  final RxString searchQuery = "".obs;
 
   @override
   void onInit() {
@@ -17,60 +23,89 @@ class SalesBillController extends GetxController {
     loadBills();
   }
 
-  // ================================================================
-  // LOAD ALL BILLS WITH SALESPERSON NAME
-  // ================================================================
+  // ===========================================================================
+  // LOAD BILLS WITH CORRECT JOIN
+  // RLS SAFE: only owner will see all, salesperson will see own
+  // ===========================================================================
   Future<void> loadBills() async {
-    loading.value = true;
+    try {
+      loading.value = true;
 
-    final res = await client
-        .from("bills")
-        .select("""
-          *,
-          salesperson:user_profiles(full_name)
-        """)
-        .order("created_at", ascending: false);
+      final res = await client
+          .from("bills")
+          .select("""
+            *,
+            salesperson: user_profiles!bills_salesperson_id_fkey (
+              full_name
+            )
+          """)
+          .order("created_at", ascending: false);
 
-    allBills.value = List<Map<String, dynamic>>.from(res);
-    filteredBills.value = allBills;
+      final list = List<Map<String, dynamic>>.from(res);
 
-    loading.value = false;
-  }
+      // Normalize: salesperson may be null
+      for (var b in list) {
+        b['salesperson_name'] = b['salesperson']?['full_name'] ?? "Unknown";
+      }
 
-  // ================================================================
-  // SEARCH BY BILL NUMBER
-  // ================================================================
-  void search(String query) {
-    if (query.isEmpty) {
-      filteredBills.value = allBills;
-      return;
+      allBills.assignAll(list);
+      _applyFilters();
+
+    } catch (e) {
+      print("❌ SalesBillController.loadBills error: $e");
+    } finally {
+      loading.value = false;
     }
-
-    filteredBills.value = allBills
-        .where((b) =>
-        b['bill_no']
-            .toString()
-            .toLowerCase()
-            .contains(query.toLowerCase()))
-        .toList();
   }
 
-  // ================================================================
+  // ===========================================================================
+  // SEARCH FILTER
+  // ===========================================================================
+  void search(String query) {
+    searchQuery.value = query.trim().toLowerCase();
+    _applyFilters();
+  }
+
+  // ===========================================================================
   // FILTER BY SALESPERSON
-  // ================================================================
-  void filterBySalesPerson(String salesPersonId) {
-    activeSalesPerson.value = salesPersonId;
-
-    filteredBills.value = allBills
-        .where((b) => b['salesperson_id'] == salesPersonId)
-        .toList();
+  // ===========================================================================
+  void filterBySalesPerson(String salespersonId) {
+    activeSalesPerson.value = salespersonId;
+    _applyFilters();
   }
 
-  // ================================================================
-  // RESET FILTER
-  // ================================================================
+  // ===========================================================================
+  // RESET FILTERS
+  // ===========================================================================
   void resetFilter() {
     activeSalesPerson.value = "";
-    filteredBills.value = allBills;
+    searchQuery.value = "";
+    filteredBills.assignAll(allBills);
+  }
+
+  // ===========================================================================
+  // APPLY COMBINED FILTERS (SEARCH + SALESPERSON)
+  // ===========================================================================
+  void _applyFilters() {
+    List<Map<String, dynamic>> list = [...allBills]; // clone list
+
+    final spId = activeSalesPerson.value;
+    final q = searchQuery.value;
+
+    // salesperson filter
+    if (spId.isNotEmpty) {
+      list = list.where((b) => b['salesperson_id'] == spId).toList();
+    }
+
+    // search filter
+    if (q.isNotEmpty) {
+      list = list
+          .where((b) =>
+      b['bill_no'].toString().toLowerCase().contains(q) ||
+          b['salesperson_name'].toString().toLowerCase().contains(q))
+          .toList();
+    }
+
+    filteredBills.assignAll(list);
   }
 }

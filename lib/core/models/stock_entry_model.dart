@@ -1,20 +1,13 @@
-// lib/core/models/stock_entry_model.dart
-
-/// Represents a single stock entry (batch) for a product.
-///
-/// Maps to `public.stock_entries` table:
-/// id, product_id, quantity, purchase_rate, selling_rate,
-/// received_date, created_at
 class StockEntry {
-  final String? id;                // uuid (null before insert)
+  final String? id;                // uuid
   final String productId;          // FK to products.id
-  final int quantity;              // how many pieces added in this batch
-  final double purchaseRate;       // purchase rate of this batch
-  final double sellingRate;        // selling rate of this batch
-  final DateTime receivedDate;     // the date stock was received
-  final DateTime? createdAt;       // record creation timestamp (from DB)
+  final int quantity;              // batch quantity
+  final double purchaseRate;       // batch purchase rate
+  final double sellingRate;        // batch selling rate
+  final DateTime receivedDate;     // date stock received
+  final DateTime? createdAt;       // auto timestamp
 
-  /// These fields are NOT stored in DB — only used for UI joins.
+  /// Joined fields (from StockService join)
   final String? productName;
   final String? barcode;
 
@@ -30,28 +23,34 @@ class StockEntry {
     this.barcode,
   });
 
-  /// Factory: convert Supabase row into StockEntry model
+  // ============================================================
+  // FACTORY: SAFE PARSING (no crash even if db returns invalid dates)
+  // ============================================================
   factory StockEntry.fromMap(Map<String, dynamic> map) {
     return StockEntry(
       id: map['id'] as String?,
       productId: map['product_id'] as String,
-      quantity: (map['quantity'] as int?) ?? 0,
-      purchaseRate: (map['purchase_rate'] as num).toDouble(),
-      sellingRate: (map['selling_rate'] as num).toDouble(),
-      receivedDate: map['received_date'] != null
-          ? DateTime.parse(map['received_date'])
-          : DateTime.now(),
+
+      quantity: (map['quantity'] as num?)?.toInt() ?? 0,
+      purchaseRate: (map['purchase_rate'] as num?)?.toDouble() ?? 0.0,
+      sellingRate: (map['selling_rate'] as num?)?.toDouble() ?? 0.0,
+
+      receivedDate: DateTime.tryParse(map['received_date']?.toString() ?? "") ??
+          DateTime.now(),
+
       createdAt: map['created_at'] != null
-          ? DateTime.parse(map['created_at'])
+          ? DateTime.tryParse(map['created_at'].toString())
           : null,
 
-      /// Optional joined fields:
+      // joined fields
       productName: map['product_name'] as String?,
       barcode: map['barcode'] as String?,
     );
   }
 
-  /// For inserting a new stock batch
+  // ============================================================
+  // TO MAP — Used for INSERT
+  // ============================================================
   Map<String, dynamic> toMap() {
     return {
       'product_id': productId,
@@ -62,6 +61,9 @@ class StockEntry {
     };
   }
 
+  // ============================================================
+  // COPY WITH
+  // ============================================================
   StockEntry copyWith({
     String? id,
     String? productId,
@@ -86,12 +88,12 @@ class StockEntry {
     );
   }
 
-  /// Utility: total cost of this batch (quantity * purchase rate)
+  // ============================================================
+  // ANALYTICS HELPERS
+  // ============================================================
   double get totalCost => quantity * purchaseRate;
 
-  /// Utility: value if sold at selling rate (quantity * selling rate)
   double get potentialRevenue => quantity * sellingRate;
 
-  /// Utility: potential profit (if entire batch sold)
   double get potentialProfit => potentialRevenue - totalCost;
 }

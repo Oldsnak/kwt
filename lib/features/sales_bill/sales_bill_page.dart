@@ -46,24 +46,21 @@ class _SalesBillPageState extends State<SalesBillPage> {
     try {
       final data = await client
           .from("user_profiles")
-          .select("id, full_name, role");
+          .select("id, full_name, role, is_active")
+          .eq("role", "salesperson")
+          .eq("is_active", true);
 
       final list = (data as List)
           .map((e) => Map<String, dynamic>.from(e))
-          .where((e) => e['role'] == 'salesperson')
           .toList();
 
       salesmen = [
-        {
-          "name": "All",
-          "id": "All",
-          "img": SImages.user3,
-        },
+        {"name": "All", "id": "All", "img": SImages.user3},
         ...list.map((s) => {
           "name": s["full_name"],
           "id": s["id"],
           "img": SImages.user,
-        })
+        }),
       ];
 
       setState(() {});
@@ -71,6 +68,7 @@ class _SalesBillPageState extends State<SalesBillPage> {
       print("loadSalesmen error: $e");
     }
   }
+
 
   // ---------------------------------------------------------------------------
   // LOAD BILLS WITH CUSTOMER + APPLY ROLE FILTER
@@ -80,25 +78,26 @@ class _SalesBillPageState extends State<SalesBillPage> {
       setState(() => isLoading = true);
 
       final user = client.auth.currentUser;
+      if (user == null) return;
 
-      final isOwner = await _isOwner(user!.id);
+      final isOwner = await _isOwner(user.id);
 
-      // First create the base query WITHOUT .order()
+      // Modern join syntax
       final baseQuery = client.from("bills").select("""
-      id,
-      bill_no,
-      total,
-      created_at,
-      salesperson_id,
-      customer:customer_id(name)
+        id,
+        bill_no,
+        total,
+        created_at,
+        salesperson_id,
+        customer:customer_id (
+          name
+        )
     """);
 
-      // Apply filter BEFORE order()
       if (!isOwner) {
         baseQuery.eq("salesperson_id", user.id);
       }
 
-      // NOW apply order
       final data = await baseQuery.order("created_at", ascending: false);
 
       allBills = (data as List)
@@ -110,6 +109,7 @@ class _SalesBillPageState extends State<SalesBillPage> {
       setState(() => isLoading = false);
     }
   }
+
 
 
   // ---------------------------------------------------------------------------
@@ -193,6 +193,8 @@ class _SalesBillPageState extends State<SalesBillPage> {
                                   style: const TextStyle(color: Colors.white),
                                   decoration: const InputDecoration(
                                     border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
                                     hintText: "Search Bill No",
                                     hintStyle: TextStyle(color: Colors.white54),
                                   ),

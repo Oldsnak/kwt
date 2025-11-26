@@ -23,19 +23,12 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   bool _loading = true;
   bool _deleting = false;
 
-  /// Saare active products
   List<Product> _allProducts = [];
-
-  /// Search-filtered products
   List<Product> _filteredProducts = [];
-
-  /// Multi-select ke liye selected product IDs
   final Set<String> _selectedIds = {};
 
-  /// Undo ke liye last deleted products (soft delete)
   List<Product> _lastDeleted = [];
 
-  /// Admin PIN – tum yahan apna desired PIN rakh sakte ho
   static const String _adminPin = "1234";
 
   @override
@@ -52,7 +45,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // LOAD ACTIVE PRODUCTS
+  // LOAD ONLY ACTIVE PRODUCTS
   // ---------------------------------------------------------------------------
   Future<void> _loadProducts() async {
     try {
@@ -61,9 +54,10 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
       final response = await _client
           .from('products')
           .select('''
-            *,
+            id, name, purchase_rate, selling_rate, stock_quantity, is_active, barcode, created_at,
             categories(name)
           ''')
+          .eq('is_active', true)
           .order('created_at', ascending: false);
 
       final list = (response as List)
@@ -72,9 +66,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
           ...row,
           'category_name': row['categories']?['name'],
         });
-      })
-          .where((p) => p.isActive) // sirf active products show karne
-          .toList();
+      }).toList();
 
       setState(() {
         _allProducts = list;
@@ -94,9 +86,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   void _applySearch() {
     final q = _searchCtrl.text.trim().toLowerCase();
     if (q.isEmpty) {
-      setState(() {
-        _filteredProducts = List<Product>.from(_allProducts);
-      });
+      setState(() => _filteredProducts = List<Product>.from(_allProducts));
       return;
     }
 
@@ -118,11 +108,9 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   void _toggleSelection(String? id) {
     if (id == null) return;
     setState(() {
-      if (_selectedIds.contains(id)) {
-        _selectedIds.remove(id);
-      } else {
-        _selectedIds.add(id);
-      }
+      _selectedIds.contains(id)
+          ? _selectedIds.remove(id)
+          : _selectedIds.add(id);
     });
   }
 
@@ -135,12 +123,10 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   void _toggleSelectAllVisible() {
     setState(() {
       if (_allVisibleSelected) {
-        // Unselect sab visible
         for (final p in _filteredProducts) {
           if (p.id != null) _selectedIds.remove(p.id);
         }
       } else {
-        // Select sab visible
         for (final p in _filteredProducts) {
           if (p.id != null) _selectedIds.add(p.id!);
         }
@@ -160,12 +146,12 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
       barrierDismissible: false,
       builder: (ctx) {
         final dark = SHelperFunctions.isDarkMode(ctx);
+
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          backgroundColor:
-          dark ? const Color(0xFF2A2A2A) : Colors.white,
+          backgroundColor: dark ? const Color(0xFF2A2A2A) : Colors.white,
           title: Row(
             children: const [
               Icon(Icons.lock, color: SColors.primary),
@@ -176,9 +162,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                "Enter 4-digit admin PIN to delete selected items.",
-              ),
+              const Text("Enter 4-digit admin PIN to delete selected items."),
               const SizedBox(height: 12),
               TextField(
                 controller: pinCtrl,
@@ -194,9 +178,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-              },
+              onPressed: () => Navigator.of(ctx).pop(),
               child: const Text("Cancel"),
             ),
             ElevatedButton(
@@ -222,7 +204,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // BEAUTIFUL CONFIRM DIALOG
+  // CONFIRM DIALOG
   // ---------------------------------------------------------------------------
   Future<bool> _confirmDeleteDialog(int count) async {
     bool confirm = false;
@@ -231,6 +213,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
       context: context,
       builder: (ctx) {
         final dark = SHelperFunctions.isDarkMode(ctx);
+
         return Dialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(25),
@@ -242,15 +225,12 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
                 colors: dark
                     ? [const Color(0xFF3A3A3A), const Color(0xFF1E1E1E)]
                     : [Colors.white, Colors.grey.shade100],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
               ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.delete_forever,
-                    color: Colors.redAccent, size: 40),
+                const Icon(Icons.delete_forever, color: Colors.redAccent, size: 40),
                 const SizedBox(height: 12),
                 Text(
                   "Delete $count item(s)?",
@@ -260,8 +240,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  "These products will be marked as inactive. "
-                      "You can undo this action from the snackbar.",
+                  "These products will be marked as inactive.\nYou can UNDO this action.",
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -273,13 +252,13 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
                       child: const Text("Cancel"),
                     ),
                     ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent,
-                      ),
                       onPressed: () {
                         confirm = true;
                         Navigator.of(ctx).pop();
                       },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                      ),
                       child: const Text("Delete"),
                     ),
                   ],
@@ -295,7 +274,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // DELETE (SOFT DELETE + UNDO)
+  // DELETE USING SOFT DELETE (is_active = false)
   // ---------------------------------------------------------------------------
   Future<void> _deleteSelected() async {
     if (_selectedIds.isEmpty) {
@@ -303,48 +282,34 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
       return;
     }
 
-    // Admin PIN check
     final pinOk = await _askAdminPin();
     if (!pinOk) return;
 
-    // Confirm dialog
     final confirm = await _confirmDeleteDialog(_selectedIds.length);
     if (!confirm) return;
 
     try {
       setState(() => _deleting = true);
 
-      // Last deleted products (undo ke liye)
       _lastDeleted = _allProducts
           .where((p) => p.id != null && _selectedIds.contains(p.id))
           .toList();
 
-      // Soft delete: is_active = false
       await _client
           .from('products')
-          .delete()
+          .update({'is_active': false})
           .filter('id', 'in', _selectedIds.toList());
 
-
-      // Local list se bhi hata do
       setState(() {
-        _allProducts.removeWhere(
-                (p) => p.id != null && _selectedIds.contains(p.id));
-        _filteredProducts.removeWhere(
-                (p) => p.id != null && _selectedIds.contains(p.id));
+        _allProducts.removeWhere((p) => _selectedIds.contains(p.id));
+        _filteredProducts.removeWhere((p) => _selectedIds.contains(p.id));
         _selectedIds.clear();
       });
 
-      // Snackbar with UNDO
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-          Text("Deleted ${_lastDeleted.length} item(s)."),
-          action: SnackBarAction(
-            label: "UNDO",
-            onPressed: _undoDelete,
-          ),
-          duration: const Duration(seconds: 5),
+          content: Text("Deleted ${_lastDeleted.length} item(s)"),
+          action: SnackBarAction(label: "UNDO", onPressed: _undoDelete),
         ),
       );
     } catch (e) {
@@ -355,21 +320,18 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // UNDO (SOFT DELETE REVERSAL)
+  // UNDO SOFT DELETE
   // ---------------------------------------------------------------------------
   Future<void> _undoDelete() async {
     if (_lastDeleted.isEmpty) return;
 
-    final ids = _lastDeleted
-        .where((p) => p.id != null)
-        .map((p) => p.id!)
-        .toList();
+    final ids = _lastDeleted.map((p) => p.id!).toList();
 
     try {
       await _client
           .from('products')
           .update({'is_active': true})
-          .filter('id', "in", ids);
+          .filter('id', 'in', ids);
 
       setState(() {
         _allProducts.insertAll(0, _lastDeleted);
@@ -383,7 +345,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // UI
+  // UI (UNCHANGED)
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -401,9 +363,9 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
           ),
         ],
       ),
+
       body: Column(
         children: [
-          // SEARCH BAR
           Padding(
             padding: const EdgeInsets.all(SSizes.sm),
             child: TextField(
@@ -412,8 +374,7 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
                 hintText: "Search by name / barcode / category",
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor:
-                dark ? Colors.black26 : Colors.grey.shade100,
+                fillColor: dark ? Colors.black26 : Colors.grey.shade100,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -421,24 +382,18 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
             ),
           ),
 
-          // SELECT ALL + DELETE BUTTON
           Padding(
-            padding:
-            const EdgeInsets.symmetric(horizontal: SSizes.sm),
+            padding: const EdgeInsets.symmetric(horizontal: SSizes.sm),
             child: Row(
               children: [
                 Checkbox(
                   value: _allVisibleSelected,
                   onChanged: (val) => _toggleSelectAllVisible(),
                 ),
-                const Text(
-                  "Select All",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+                const Text("Select All", style: TextStyle(fontWeight: FontWeight.bold)),
                 const Spacer(),
                 ElevatedButton.icon(
-                  onPressed:
-                  (_deleting || _selectedIds.isEmpty) ? null : _deleteSelected,
+                  onPressed: _deleting || _selectedIds.isEmpty ? null : _deleteSelected,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: SColors.primary,
                     padding: EdgeInsets.symmetric(horizontal: SSizes.sm),
@@ -450,16 +405,11 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
                       ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
                       : const Icon(Icons.delete),
                   label: Text(
-                    _deleting
-                        ? "Deleting..."
-                        : "Delete (${_selectedIds.length})",
+                    _deleting ? "Deleting..." : "Delete (${_selectedIds.length})",
                   ),
                 ),
               ],
@@ -470,56 +420,41 @@ class _RemoveItemsPageState extends State<RemoveItemsPage> {
 
           Expanded(
             child: _loading
-                ? const Center(
-              child: CircularProgressIndicator(),
-            )
+                ? const Center(child: CircularProgressIndicator())
                 : _filteredProducts.isEmpty
-                ? const Center(
-              child: Text("No active products found."),
-            )
+                ? const Center(child: Text("No active products found."))
                 : ListView.builder(
               itemCount: _filteredProducts.length,
               itemBuilder: (context, index) {
                 final p = _filteredProducts[index];
                 final id = p.id;
-                final selected =
-                    id != null && _selectedIds.contains(id);
+                final selected = id != null && _selectedIds.contains(id);
 
                 return Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: SSizes.sm,
-                      vertical: SSizes.xs),
+                    horizontal: SSizes.sm,
+                    vertical: SSizes.xs,
+                  ),
                   child: GlossyContainer(
                     child: ListTile(
-                      onTap: id == null
-                          ? null
-                          : () => _toggleSelection(id),
+                      onTap: id == null ? null : () => _toggleSelection(id),
                       leading: Checkbox(
                         value: selected,
-                        onChanged: (val) {
-                          if (id != null) {
-                            _toggleSelection(id);
-                          }
-                        },
+                        onChanged: (val) => id != null ? _toggleSelection(id) : null,
                       ),
                       title: Text(
                         p.name,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
                         "Stock: ${p.stockQuantity} • Price: ${p.sellingRate} • "
                             "Category: ${p.categoryName ?? '--'}",
                       ),
                       trailing: IconButton(
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          color: Colors.redAccent,
-                        ),
+                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                         onPressed: id == null
                             ? null
                             : () {
-                          // single-item delete via selection
                           _selectedIds
                             ..clear()
                             ..add(id);

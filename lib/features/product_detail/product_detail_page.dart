@@ -1,5 +1,3 @@
-// lib/features/product_detail/view/product_detail_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
@@ -8,7 +6,6 @@ import 'package:kwt/widgets/custom_shapes/containers/glossy_container.dart';
 
 import '../../app/theme/colors.dart';
 import '../../core/controllers/stock_controller.dart';
-import '../../core/models/product_model.dart';
 import '../stock/add_stock_page.dart';
 
 class ProductDetailPage extends StatelessWidget {
@@ -16,16 +13,20 @@ class ProductDetailPage extends StatelessWidget {
 
   ProductDetailPage({super.key, required this.productId});
 
-  final StockController controller = Get.put(StockController());
+  final StockController controller = Get.find<StockController>();
 
   @override
   Widget build(BuildContext context) {
     final bool dark = SHelperFunctions.isDarkMode(context);
-    
-    controller.loadStockHistory(productId); // Load on page open
+
+    /// FIX: run loading only once, not every rebuild
+    Future.microtask(() {
+      if (controller.product.value?.id != productId) {
+        controller.loadStockHistory(productId);
+      }
+    });
 
     return Scaffold(
-
       floatingActionButton: FloatingActionButton(
         backgroundColor: dark ? SColors.darkOptional : SColors.primary,
         foregroundColor: dark ? SColors.primary : Colors.white,
@@ -34,7 +35,7 @@ class ProductDetailPage extends StatelessWidget {
           Get.to(() => AddStockPage(productId: productId))!
               .then((_) => controller.loadStockHistory(productId));
         },
-        child: const Icon(Icons.add,size: 35),
+        child: const Icon(Icons.add, size: 35),
       ),
 
       body: Obx(() {
@@ -52,10 +53,9 @@ class ProductDetailPage extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // --------------------------------------------------------------
+            SizedBox(height: SSizes.appBarHeight),
+
             // PRODUCT SUMMARY CARD
-            // --------------------------------------------------------------
-            SizedBox(height: SSizes.appBarHeight,),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: SSizes.defaultSpace),
               child: GlossyContainer(
@@ -65,50 +65,20 @@ class ProductDetailPage extends StatelessWidget {
                     Text(
                       product.name.toUpperCase(),
                       style: Theme.of(context).textTheme.headlineMedium
-                      ?.copyWith(fontWeight: FontWeight.bold, color: SColors.primary),
+                          ?.copyWith(fontWeight: FontWeight.bold, color: SColors.primary),
                     ),
-                    SizedBox(height: SSizes.sm,),
+                    SizedBox(height: SSizes.sm),
                     Divider(color: dark ? SColors.darkGrey : SColors.primary, thickness: 1),
-                    SizedBox(height: SSizes.sm,),
+                    SizedBox(height: SSizes.sm),
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: SSizes.sm),
                       child: Column(
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Category:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                              Text(product.categoryName ?? '---',textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                            ],
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Barcode:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                              Text(product.barcode,textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                            ],
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Stock:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                              Text("${product.stockQuantity}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                            ],
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Price:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                              Text("${product.sellingRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                            ],
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Purchase Rate:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                              Text("${product.purchaseRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                            ],
-                          ),
+                          _infoRow(context, dark, "Category:", product.categoryName ?? "---"),
+                          _infoRow(context, dark, "Barcode:", product.barcode),
+                          _infoRow(context, dark, "Stock:", "${product.stockQuantity}"),
+                          _infoRow(context, dark, "Price:", "${product.sellingRate}"),
+                          _infoRow(context, dark, "Purchase Rate:", "${product.purchaseRate}"),
                         ],
                       ),
                     ),
@@ -119,19 +89,11 @@ class ProductDetailPage extends StatelessWidget {
 
             const SizedBox(height: SSizes.xl),
 
-            // --------------------------------------------------------------
-            // STOCK HISTORY TITLE
-            // --------------------------------------------------------------
             const Text(
               "Stock History",
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: SColors.primary),
             ),
 
-            // const SizedBox(height: 10),
-
-            // --------------------------------------------------------------
-            // STOCK HISTORY LIST
-            // --------------------------------------------------------------
             if (stockList.isEmpty)
               const Center(
                 child: Padding(
@@ -153,52 +115,51 @@ class ProductDetailPage extends StatelessWidget {
                       children: [
                         Text(
                           "${entry.receivedDate.day}-"
-                          "${entry.receivedDate.month}-"
-                          "${entry.receivedDate.year}",
+                              "${entry.receivedDate.month}-"
+                              "${entry.receivedDate.year}",
                           style: Theme.of(context).textTheme.headlineMedium
                               ?.copyWith(fontWeight: FontWeight.bold, color: SColors.primary),
                         ),
-                        SizedBox(height: SSizes.sm,),
+                        SizedBox(height: SSizes.sm),
                         Divider(color: dark ? SColors.darkGrey : SColors.primary, thickness: 1),
-                        SizedBox(height: SSizes.sm,),
+                        SizedBox(height: SSizes.sm),
                         Padding(
                           padding: EdgeInsets.symmetric(horizontal: SSizes.sm),
                           child: Column(
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text("Quantity:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                                  Text("${entry.quantity}" ?? '---',textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                                ],
-                              ),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text("Purchase:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                                  Text("${entry.purchaseRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                                ],
-                              ),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text("Selling:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: dark ? Colors.grey : SColors.dark)),
-                                  Text("${entry.sellingRate}",textDirection: TextDirection.rtl,style: Theme.of(context).textTheme.headlineSmall!.apply(color: dark ? Colors.grey : SColors.dark),),
-                                ],
-                              ),
+                              _infoRow(context, dark, "Quantity:", "${entry.quantity}"),
+                              _infoRow(context, dark, "Purchase:", "${entry.purchaseRate}"),
+                              _infoRow(context, dark, "Selling:", "${entry.sellingRate}"),
                             ],
                           ),
                         ),
                       ],
                     ),
                   );
-
                 },
               ),
-            SizedBox(height: SSizes.appBarHeight,)
+
+            SizedBox(height: SSizes.appBarHeight),
           ],
         );
       }),
+    );
+  }
+
+  Widget _infoRow(BuildContext context, bool dark, String title, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(title,
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: dark ? Colors.grey : SColors.dark)),
+        Text(value,
+            textDirection: TextDirection.rtl,
+            style: Theme.of(context).textTheme.headlineSmall!
+                .apply(color: dark ? Colors.grey : SColors.dark)),
+      ],
     );
   }
 }

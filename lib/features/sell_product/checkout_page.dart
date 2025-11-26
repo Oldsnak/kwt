@@ -12,6 +12,9 @@ import '../../../core/services/whatsapp_share_service.dart';
 import '../../../core/utils/mobile_number_formatter.dart';
 import '../registered_customers/add_customer_page.dart';
 
+// 👇 NEW: use SellController as single source of truth for sale RPC
+import '../../../core/controllers/sell_controller.dart';
+
 class CheckoutPage extends StatefulWidget {
   final String billNo;
   final List<Map<String, dynamic>> items;
@@ -20,6 +23,7 @@ class CheckoutPage extends StatefulWidget {
   final double totalDiscount;
   final double total;
 
+  /// If null → new bill, if not null → editing existing bill
   final String? editingBillId;
 
   CheckoutPage({
@@ -40,6 +44,9 @@ class CheckoutPage extends StatefulWidget {
 class _CheckoutPageState extends State<CheckoutPage> {
   final SupabaseClient _client = Supabase.instance.client;
 
+  /// Use the same SellController we put in SellPage
+  final SellController sellController = Get.find<SellController>();
+
   bool isPaid = true;
   bool isSaving = false;
 
@@ -48,9 +55,16 @@ class _CheckoutPageState extends State<CheckoutPage> {
   final TextEditingController debtCustomerPhoneCtrl = TextEditingController();
   final TextEditingController paidAmountCtrl = TextEditingController();
 
-  // ===========================================================================
-  // SAVE BILL → (NEW: RPC FOR NEW BILL) / (EDIT: MANUAL UPDATE)
-  // ===========================================================================
+  // ===================================================================
+  // SAVE BILL
+  //  - NEW BILL  → SellController.finalizeBill (RPC)
+  //  - EDIT BILL → manual update (no stock change)
+  // ===================================================================
+  // ===================================================================
+// SAVE BILL
+//  - NEW BILL  → SellController.finalizeBill
+//  - EDIT BILL → manual update (no stock change)
+// ===================================================================
   Future<void> _saveBill() async {
     if (isSaving) return;
     setState(() => isSaving = true);
@@ -58,8 +72,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
     String? billId = widget.editingBillId;
     String? customerId;
 
+    // yahan hum wo bill no store karenge jo actually DB me use hoga
+    String? usedBillNo;
+
     try {
-      // Logged in user → salesperson / owner
+      // Logged in user
       final user = _client.auth.currentUser;
       if (user == null) {
         Get.snackbar("Auth error", "User not logged in.");
@@ -68,9 +85,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
       }
       final String salespersonId = user.id;
 
-      // ------------------------------------------------------------------
-      // 1️⃣ CUSTOMER HANDLE (paid vs unpaid)
-      // ------------------------------------------------------------------
+      // -------------------------------
+      // 1) CUSTOMER (paid / unpaid)
+      // -------------------------------
       if (isPaid) {
         customerId = await _handlePaidBillCustomer();
       } else {
@@ -82,56 +99,60 @@ class _CheckoutPageState extends State<CheckoutPage> {
         customerId = validated;
       }
 
-      // kitna paid?
       final double paidAmount = isPaid
           ? widget.total
           : (double.tryParse(paidAmountCtrl.text) ?? 0);
 
-      // ------------------------------------------------------------------
-      // 2️⃣ NEW BILL → USE RPC create_sale_transaction
-      // ------------------------------------------------------------------
+      // ==============================================================
+      // 2) NEW BILL → USE SellController.finalizeBill
+      // ==============================================================
       if (billId == null) {
-        /// items ko RPC ke liye convert karo
-        final List<Map<String, dynamic>> saleItems =
-        widget.items.map((item) {
+        // SellController ke items ko uski expected shape me map karo
+        final List<Map<String, dynamic>> formattedItems =
+        widget.items.map((i) {
           return {
-            "product_id": item['id'],
-            "quantity": item['pieces'],
-            "selling_rate": item['price'],
-            "discount_per_piece": item['discount'],
+            "id": i["id"],           // product id
+            "product_id": i["id"],
+            "pieces": i["pieces"],
+            "price": i["price"],
+            "discount": i["discount"],
           };
         }).toList();
 
-        final result = await _client.rpc(
-          'create_sale_transaction',
-          params: {
-            'p_bill_no': widget.billNo,
-            'p_customer_id': customerId,
-            'p_salesperson_id': salespersonId,
-            'p_items': saleItems,
-            'p_sub_total': widget.subTotal,
-            'p_total_discount': widget.totalDiscount,
-            'p_total': widget.total,
-            'p_paid': paidAmount,
-            'p_is_fully_paid': isPaid,
-          },
+        // controller ki list replace
+        sellController.billItems.assignAll(formattedItems);
+
+        // ⚠ IMPORTANT:
+        // Yahan billNo ko dubara set NAHIN kar rahe.
+        // Jo SellController.loadReservedOrNewBill ne generate kia tha,
+        // wohi use hoga.
+        usedBillNo = sellController.billNo.value;
+
+        final String? newBillId = await sellController.finalizeBill(
+          isFullyPaid: isPaid,
+          paidAmount: paidAmount,
+          customerId: customerId,
+          salespersonId: salespersonId,
         );
 
-        billId = result?.toString();
-      } else {
-        // ----------------------------------------------------------------
-        // 3️⃣ EDITING EXISTING BILL (NO STOCK CHANGE HERE)
-        // ----------------------------------------------------------------
+        if (newBillId == null) {
+          Get.snackbar("Error", "Failed to save bill.");
+          setState(() => isSaving = false);
+          return;
+        }
 
-        // RLS ensure karega ke:
-        // - owner kisi ka bhi bill edit kar sakta
-        // - salesperson sirf apna bill edit kare
-        // yahan hum sirf bill & sales rows update kar rahe hain.
+        billId = newBillId;
+      }
 
-        // Purane sales delete
+      // ==============================================================
+      // 3) EDIT EXISTING BILL (NO STOCK CHANGE)
+      // ==============================================================
+      else {
+        // edit mode me bill no already DB me hai → UI se lo
+        usedBillNo = sellController.billNo.value;
+
         await _client.from("sales").delete().eq('bill_id', billId);
 
-        // Bill row update
         await _client.from("bills").update({
           'customer_id': customerId,
           'total_items': widget.items.length,
@@ -142,7 +163,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
           'is_fully_paid': isPaid,
         }).eq('id', billId);
 
-        // Naye sales insert (LEKIN STOCK KO TOUCH NAHI KARTE)
         for (final item in widget.items) {
           await _client.from("sales").insert({
             'bill_id': billId,
@@ -154,16 +174,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
           });
         }
 
-        // DEBT UPDATE
+        // Debt records for edited bill
         if (!isPaid && customerId != null) {
           final remaining = widget.total - paidAmount;
 
-          // Purana debt delete + naya insert (sirf 1 row per bill)
-          await _client
-              .from("customer_debts")
-              .delete()
-              .eq('bill_id', billId);
-
+          await _client.from("customer_debts").delete().eq('bill_id', billId);
           await _client.from("customer_debts").insert({
             'customer_id': customerId,
             'bill_id': billId,
@@ -175,11 +190,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 .toIso8601String(),
           });
         } else {
-          // agr ab bill fully paid ho gaya → koi debt record nahi hona chahiye
-          await _client
-              .from("customer_debts")
-              .delete()
-              .eq('bill_id', billId);
+          await _client.from("customer_debts").delete().eq('bill_id', billId);
         }
       }
     } catch (e) {
@@ -188,12 +199,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
       return;
     }
 
-    // ----------------------------------------------------------------------
-    // 4️⃣ PRINT BILL
-    // ----------------------------------------------------------------------
+    // ==============================================================
+    // 4) PRINT BILL  +  5) WHATSAPP SHARE
+    //    -- yahan hum wohi bill no use karenge jo upar decide hua
+    // ==============================================================
+    final String billNoForOutput = sellController.billNo.value;
+
     try {
       await ThermalPrinterService.printBill(
-        billNo: widget.billNo,
+        billNo: billNoForOutput,
         items: widget.items,
         subTotal: widget.subTotal,
         discount: widget.totalDiscount,
@@ -206,12 +220,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
       );
     } catch (_) {}
 
-    // ----------------------------------------------------------------------
-    // 5️⃣ SHARE ON WHATSAPP
-    // ----------------------------------------------------------------------
     try {
       await WhatsAppShareService.shareBillViaWhatsApp(
-        billNo: widget.billNo,
+        billNo: billNoForOutput,
         customer: isPaid
             ? (widget.customerName.isEmpty
             ? "Walking Customer"
@@ -224,9 +235,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
       );
     } catch (_) {}
 
-    // ----------------------------------------------------------------------
-    // 6️⃣ DONE
-    // ----------------------------------------------------------------------
+    // ==============================================================
+    // 6) DONE
+    // ==============================================================
     Get.snackbar(
       "Success",
       "Bill saved successfully!",
@@ -237,9 +248,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
     Get.offAllNamed('/sales_bill', arguments: billId);
   }
 
-  // ===========================================================================
+
+
+  // ===================================================================
   // HANDLE PAID BILL CUSTOMER (optional)
-  // ===========================================================================
+  // ===================================================================
   Future<String?> _handlePaidBillCustomer() async {
     if (widget.customerName.trim().isEmpty) return null;
 
@@ -256,9 +269,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
   }
 
-  // ===========================================================================
-  // HANDLE UNPAID CUSTOMER (MUST EXIST → register if needed)
-  // ===========================================================================
+  // ===================================================================
+  // HANDLE UNPAID CUSTOMER (MUST EXIST)
+  // ===================================================================
   Future<String?> _handleUnpaidCustomer() async {
     final name = debtCustomerNameCtrl.text.trim();
     final phone = debtCustomerPhoneCtrl.text.trim();
@@ -274,7 +287,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       return null;
     }
 
-    // 1) Check by phone number
+    // 1) Try existing customer by phone
     final existing = await _client
         .from("customers")
         .select()
@@ -285,16 +298,16 @@ class _CheckoutPageState extends State<CheckoutPage> {
       return existing['id'] as String?;
     }
 
-    // 2) Open AddCustomerPage to create new registered customer
+    // 2) Register new customer
     final inserted = await Get.to(() => const AddCustomerPage());
     if (inserted == null) return null;
 
     return inserted['id'] as String?;
   }
 
-  // ===========================================================================
-  // UI
-  // ===========================================================================
+  // ===================================================================
+  // UI (UNCHANGED)
+  // ===================================================================
   @override
   Widget build(BuildContext context) {
     final dark = SHelperFunctions.isDarkMode(context);
@@ -313,14 +326,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _row(
-                          "Customer",
-                          widget.customerName.isEmpty
-                              ? "Walking Customer"
-                              : widget.customerName),
-                      _row("Bill No", widget.billNo),
-                      _row(
-                          "Total Items",
-                          widget.items.length.toString()),
+                        "Customer",
+                        widget.customerName.isEmpty
+                            ? "Walking Customer"
+                            : widget.customerName,
+                      ),
+                      _row("Bill No", sellController.billNo.value),
+                      _row("Total Items", widget.items.length.toString()),
                       _row(
                           "Subtotal",
                           widget.subTotal.toStringAsFixed(2)),
@@ -343,10 +355,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("Is Bill Paid?",
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold)),
+                    const Text(
+                      "Is Bill Paid?",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     Switch(
                       value: isPaid,
                       activeColor: SColors.primary,
@@ -369,18 +384,22 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     onPressed: isSaving ? null : _saveBill,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: SColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding:
+                      const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15)),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
                     ),
                     child: isSaving
                         ? const CircularProgressIndicator(
-                        color: Colors.white)
+                      color: Colors.white,
+                    )
                         : const Text(
                       "Save & Generate Bill",
                       style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold),
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -392,9 +411,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
     );
   }
 
-  // ===========================================================================
-  // UNPAID FORM UI
-  // ===========================================================================
+  // ===================================================================
+  // UNPAID FORM UI (unchanged)
+  // ===================================================================
   Widget _buildUnpaidForm(BuildContext context, bool dark) {
     return GlossyContainer(
       child: Column(
@@ -403,9 +422,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
           const Text(
             "Add Customer Debt",
             style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: SColors.primary),
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: SColors.primary,
+            ),
           ),
           const SizedBox(height: 15),
 
@@ -447,25 +467,31 @@ class _CheckoutPageState extends State<CheckoutPage> {
     );
   }
 
-  // ===========================================================================
+  // ===================================================================
+  // SMALL ROW
+  // ===================================================================
   Widget _row(String label, String value, {bool primary = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: TextStyle(
-                color: primary ? SColors.primary : null,
-                fontSize: primary ? 18 : 16,
-                fontWeight: FontWeight.bold,
-              )),
-          Text(value,
-              style: TextStyle(
-                color: primary ? SColors.primary : null,
-                fontSize: primary ? 18 : 16,
-                fontWeight: FontWeight.bold,
-              )),
+          Text(
+            label,
+            style: TextStyle(
+              color: primary ? SColors.primary : null,
+              fontSize: primary ? 18 : 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: primary ? SColors.primary : null,
+              fontSize: primary ? 18 : 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
       ),
     );

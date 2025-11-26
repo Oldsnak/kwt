@@ -42,16 +42,6 @@ class TProductCardhohrizontal extends StatelessWidget {
                     child: Text('25%', style: Theme.of(context).textTheme.labelLarge!.apply(color: SColors.black),),
                   ),
                 ),
-
-                // Positioned(
-                //     top: -9,
-                //     right: -10,
-                //     // child: TCircularIcon(
-                //     //   icon: Icons.favorite,
-                //     //   color: Colors.red,
-                //     //   backgroundColor: Colors.transparent,
-                //     // )
-                // )
               ],
             ),
           ),

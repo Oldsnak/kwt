@@ -29,15 +29,15 @@ class AddProductController extends GetxController {
   }
 
   // --------------------------------------------------------------------------
-  // LOAD CATEGORIES
+  // LOAD CATEGORIES (safe with RLS + error handling)
   // --------------------------------------------------------------------------
   Future<void> loadCategories() async {
     try {
       isLoadingCategories.value = true;
       errorMessage.value = '';
 
-      final data = await _categoryService.fetchCategories();
-      categories.assignAll(data);
+      final list = await _categoryService.fetchCategories();
+      categories.assignAll(list);
 
     } catch (e) {
       errorMessage.value = "Failed to load categories: $e";
@@ -48,6 +48,11 @@ class AddProductController extends GetxController {
 
   // --------------------------------------------------------------------------
   // SAVE NEW PRODUCT
+  //
+  // STEPS:
+  // 1) generate unique barcode
+  // 2) insert product (returns productId)
+  // 3) insert initial stock entry (and product auto-update handled in StockService)
   // --------------------------------------------------------------------------
   Future<bool> saveProduct({
     required String name,
@@ -59,27 +64,27 @@ class AddProductController extends GetxController {
       isSaving.value = true;
       errorMessage.value = '';
 
-      final selected = selectedCategory.value;
+      final cat = selectedCategory.value;
 
-      if (selected == null || selected.id == null) {
+      if (cat == null || cat.id == null) {
         errorMessage.value = "Select a valid category.";
         return false;
       }
 
-      // 1) generate unique barcode
+      // 1) generate barcode
       final barcode = _productService.generateBarcode();
 
-      // 2) insert product
+      // 2) create product
       final productId = await _productService.addNewProduct(
         name: name,
-        categoryId: selected.id!, // safe because we've checked
+        categoryId: cat.id!,
         purchaseRate: purchaseRate,
         sellingRate: sellingRate,
-        stockQuantity: quantity,
+        stockQuantity: 0, // ⚠ stock is added via StockService, not here
         barcode: barcode,
       );
 
-      // 3) insert initial stock entry (if quantity > 0)
+      // 3) add initial stock batch
       if (quantity > 0) {
         await _stockService.addStock(
           productId: productId,

@@ -1,52 +1,92 @@
 class CustomerDebt {
   final String id;
   final String customerId;
-  final int? billNo;
+  final String billId;               // UUID of bill (correct field)
+
   final double debtAmount;
+  final double paidAmount;
+  final double remainingAmount;
+
   final DateTime? dueDate;
   final DateTime? createdAt;
 
   CustomerDebt({
     required this.id,
     required this.customerId,
-    this.billNo,
+    required this.billId,
     required this.debtAmount,
+    required this.paidAmount,
+    required this.remainingAmount,
     this.dueDate,
     this.createdAt,
   });
 
-  factory CustomerDebt.fromJson(Map<String, dynamic> json) => CustomerDebt(
-    id: json['id'] as String,
-    customerId: json['customer_id'] as String,
-    billNo: json['bill_no'] == null ? null : (json['bill_no'] as num).toInt(),
-    debtAmount: (json['debt_amount'] as num).toDouble(),
-    dueDate: json['due_date'] == null ? null : DateTime.parse(json['due_date'] as String),
-    createdAt: json['created_at'] == null ? null : DateTime.parse(json['created_at'] as String),
-  );
+  // ---------------------------------------------------------------------------
+  // FROM MAP (SAFE)
+  // ---------------------------------------------------------------------------
+  factory CustomerDebt.fromJson(Map<String, dynamic> json) {
+    return CustomerDebt(
+      id: json['id'] as String,
+      customerId: json['customer_id'] as String,
+      billId: json['bill_id'] as String,
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'customer_id': customerId,
-    'bill_no': billNo,
-    'debt_amount': debtAmount,
-    'due_date': dueDate?.toIso8601String(),
-    'created_at': createdAt?.toIso8601String(),
-  };
+      debtAmount: (json['debt_amount'] as num?)?.toDouble() ?? 0.0,
+      paidAmount: (json['paid_amount'] as num?)?.toDouble() ?? 0.0,
+      remainingAmount: (json['remaining_amount'] as num?)?.toDouble() ?? 0.0,
 
+      dueDate: json['due_date'] != null
+          ? DateTime.tryParse(json['due_date'].toString())
+          : null,
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'].toString())
+          : null,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // TO JSON (FOR INSERT/UPDATE)
+  // DO NOT send id or created_at → Supabase auto-generates
+  // ---------------------------------------------------------------------------
+  Map<String, dynamic> toJson() {
+    return {
+      'customer_id': customerId,
+      'bill_id': billId,
+      'debt_amount': debtAmount,
+      'paid_amount': paidAmount,
+      'remaining_amount': remainingAmount,
+      'due_date': dueDate?.toIso8601String(),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // COPY WITH
+  // ---------------------------------------------------------------------------
   CustomerDebt copyWith({
     String? id,
     String? customerId,
-    int? billNo,
+    String? billId,
     double? debtAmount,
+    double? paidAmount,
+    double? remainingAmount,
     DateTime? dueDate,
     DateTime? createdAt,
-  }) =>
-      CustomerDebt(
-        id: id ?? this.id,
-        customerId: customerId ?? this.customerId,
-        billNo: billNo ?? this.billNo,
-        debtAmount: debtAmount ?? this.debtAmount,
-        dueDate: dueDate ?? this.dueDate,
-        createdAt: createdAt ?? this.createdAt,
-      );
+  }) {
+    return CustomerDebt(
+      id: id ?? this.id,
+      customerId: customerId ?? this.customerId,
+      billId: billId ?? this.billId,
+      debtAmount: debtAmount ?? this.debtAmount,
+      paidAmount: paidAmount ?? this.paidAmount,
+      remainingAmount: remainingAmount ?? this.remainingAmount,
+      dueDate: dueDate ?? this.dueDate,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // HELPERS
+  // ---------------------------------------------------------------------------
+  bool get isPaid => remainingAmount <= 0;
+
+  double get pendingAmount => remainingAmount;
 }

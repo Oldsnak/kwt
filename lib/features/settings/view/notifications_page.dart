@@ -1,4 +1,5 @@
 // lib/features/notifications/view/notifications_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
@@ -7,34 +8,63 @@ import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
 import '../../../core/controllers/notification_controller.dart';
 import '../../../core/services/notification_service.dart';
+import 'package:intl/intl.dart';
 
-class NotificationsPage extends StatelessWidget {
+class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final NotificationController controller =
-    Get.put(NotificationController());
-    Future.delayed(Duration(milliseconds: 500), () async {
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  late final NotificationController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.put(NotificationController());
+
+    /// 🔥 ONCE-FETCH AT PAGE OPEN
+    Future.microtask(() async {
+      await _triggerBackgroundChecks();
+      controller.loadAll();
+    });
+  }
+
+  /// --------------------------------------------------------
+  /// BACKGROUND ALERT GENERATORS
+  /// --------------------------------------------------------
+  Future<void> _triggerBackgroundChecks() async {
+    try {
       await NotificationService().checkLowStock();
       await NotificationService().checkPriceRise();
       await NotificationService().checkOverdueCustomers();
-      controller.loadAll();
-    });
+    } catch (_) {
+      // ignore, RLS may block in some cases
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dark = SHelperFunctions.isDarkMode(context);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
-        backgroundColor: SColors.primary,
+        // backgroundColor: SColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: controller.loadAll,
+            onPressed: () async {
+              await _triggerBackgroundChecks();
+              controller.loadAll();
+            },
           ),
         ],
       ),
+
       body: Obx(() {
         if (controller.isLoading.value) {
           return const Center(child: CircularProgressIndicator());
@@ -52,22 +82,18 @@ class NotificationsPage extends StatelessWidget {
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final n = controller.notifications[index];
-            final type = (n['type'] ?? '').toString();
 
             return Dismissible(
               key: ValueKey(n['id'].toString()),
               direction: DismissDirection.horizontal,
-              background: _dismissBg(
-                alignLeft: true,
-                dark: dark,
-              ),
-              secondaryBackground: _dismissBg(
-                alignLeft: false,
-                dark: dark,
-              ),
+              background: _dismissBg(alignLeft: true, dark: dark),
+              secondaryBackground: _dismissBg(alignLeft: false, dark: dark),
+
               onDismissed: (_) async {
                 await controller.markRead(n['id'].toString());
+                controller.loadAll(); // 🔥 instant refresh
               },
+
               child: _NotificationCard(
                 data: n,
                 onActionTap: () => controller.handleAction(n),
@@ -86,8 +112,6 @@ class NotificationsPage extends StatelessWidget {
       alignment: alignLeft ? Alignment.centerLeft : Alignment.centerRight,
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment:
-        alignLeft ? MainAxisAlignment.start : MainAxisAlignment.end,
         children: const [
           Icon(Icons.delete, color: Colors.white),
           SizedBox(width: 8),
@@ -112,7 +136,15 @@ class _NotificationCard extends StatelessWidget {
     final type = (data['type'] ?? '').toString();
     final title = (data['title'] ?? '').toString();
     final message = (data['message'] ?? '').toString();
-    final createdAt = data['created_at']?.toString();
+    final createdAtRaw = data['created_at']?.toString();
+
+    String formattedDate = createdAtRaw ?? "";
+    if (createdAtRaw != null) {
+      try {
+        final dt = DateTime.parse(createdAtRaw);
+        formattedDate = DateFormat("dd MMM yyyy • hh:mm a").format(dt);
+      } catch (_) {}
+    }
 
     final iconData = _iconForType(type);
     final iconColor = _colorForType(type);
@@ -150,16 +182,16 @@ class _NotificationCard extends StatelessWidget {
               message,
               style: const TextStyle(fontSize: 13),
             ),
-            if (createdAt != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                createdAt,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade600,
-                ),
+
+            const SizedBox(height: 4),
+            Text(
+              formattedDate,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
               ),
-            ],
+            ),
+
             if (hasAction) ...[
               const SizedBox(height: 10),
               Align(
@@ -181,9 +213,7 @@ class _NotificationCard extends StatelessWidget {
   }
 
   bool _hasAction(String type) {
-    // Abhi sirf overdue_customer pe action
-    if (type == 'overdue_customer') return true;
-    return false;
+    return type == 'overdue_customer';
   }
 
   IconData _iconForType(String type) {

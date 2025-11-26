@@ -27,12 +27,38 @@ class _LoginFormState extends State<LoginForm> {
     super.dispose();
   }
 
+  /// ------------------------------------------------------------
+  /// Helper: convert phone → salesperson email automatically
+  /// ------------------------------------------------------------
+  String _normalizeLoginEmail(String input) {
+    final cleaned = input.trim();
+
+    // If it's digits only → treat as salesperson login
+    final isPhone = RegExp(r'^[0-9]+$').hasMatch(cleaned);
+
+    if (isPhone && cleaned.length >= 10) {
+      return "sp_$cleaned@salesperson.kwt.com";
+    }
+
+    return cleaned; // normal email
+  }
+
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      await authController.signIn(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-      );
+      final loginEmail = _normalizeLoginEmail(_emailController.text);
+
+      try {
+        await authController.signIn(
+          loginEmail,
+          _passwordController.text.trim(),
+        );
+      } catch (e) {
+        Get.snackbar(
+          "Login Failed",
+          e.toString(),
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      }
     }
   }
 
@@ -44,7 +70,7 @@ class _LoginFormState extends State<LoginForm> {
         padding: const EdgeInsets.symmetric(vertical: SSizes.spaceBtwSections),
         child: Column(
           children: [
-            // EMAIL FIELD
+            // EMAIL FIELD (UI unchanged)
             TextFormField(
               controller: _emailController,
               decoration: const InputDecoration(
@@ -56,7 +82,7 @@ class _LoginFormState extends State<LoginForm> {
             ),
             const SizedBox(height: SSizes.spaceBtwInputFields),
 
-            // PASSWORD FIELD
+            // PASSWORD FIELD (UI unchanged)
             TextFormField(
               controller: _passwordController,
               obscureText: _isObscure,
@@ -73,7 +99,7 @@ class _LoginFormState extends State<LoginForm> {
             ),
             const SizedBox(height: SSizes.spaceBtwInputFields / 2),
 
-            // REMEMBER & FORGOT PASSWORD
+            // REMEMBER & FORGOT PASSWORD (UI unchanged)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -88,9 +114,7 @@ class _LoginFormState extends State<LoginForm> {
                   ],
                 ),
                 TextButton(
-                  onPressed: () {
-                    Get.snackbar('Info', 'Password recovery coming soon');
-                  },
+                  onPressed: () => Get.snackbar('Info', 'Password recovery coming soon'),
                   child: const Text(STexts.forgetPassword),
                 ),
               ],
@@ -98,7 +122,7 @@ class _LoginFormState extends State<LoginForm> {
 
             const SizedBox(height: SSizes.spaceBtwSections),
 
-            // LOGIN BUTTON
+            // LOGIN BUTTON (UI unchanged)
             Obx(
                   () => SizedBox(
                 width: double.infinity,
@@ -117,13 +141,11 @@ class _LoginFormState extends State<LoginForm> {
 
             const SizedBox(height: SSizes.spaceBtwItems),
 
-            // CREATE ACCOUNT BUTTON
+            // CREATE ACCOUNT BUTTON (UI unchanged)
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: () {
-                  Get.snackbar('Notice', 'Signup not enabled yet');
-                },
+                onPressed: () => Get.snackbar('Notice', 'Signup not enabled yet'),
                 child: const Text(STexts.createAccount),
               ),
             ),

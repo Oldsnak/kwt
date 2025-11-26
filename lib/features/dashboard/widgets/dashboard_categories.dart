@@ -21,6 +21,7 @@ class DashboardCategories extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Container(
           width: 1750,
+          // constraints: const BoxConstraints(minWidth: 500),
           child: Wrap(
             children: [
               /// ALL category
@@ -37,10 +38,12 @@ class DashboardCategories extends StatelessWidget {
               ...categories.map((c) {
                 return _CategoryChip(
                   label: c.name,
-                  isSelected: selectedId == c.id,
+                  isSelected: selectedId == (c.id ?? ''),
                   onTap: () {
-                    categoryController.selectCategory(c.id);
-                    productController.filterByCategory(c.id);
+                    if (c.id != null) {
+                      categoryController.selectCategory(c.id);
+                      productController.filterByCategory(c.id);
+                    }
                   },
                 );
               }).toList(),

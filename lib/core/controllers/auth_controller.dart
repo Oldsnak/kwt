@@ -1,128 +1,122 @@
+// lib/core/controllers/auth_controller.dart
+
 import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_profile.dart';
 import '../services/auth_service.dart';
 
 class AuthController extends GetxController {
+  // Supabase client
   final SupabaseClient _client = Supabase.instance.client;
 
-  Rx<UserProfile?> userProfile = Rx<UserProfile?>(null);
-  RxBool isLoading = false.obs;
+  // Observable user profile
+  final Rxn<UserProfile> userProfile = Rxn<UserProfile>();
+  final RxBool isLoading = false.obs;
 
+  // -----------------------------
+  // ROLE CHECKS
+  // -----------------------------
   bool get isOwner => userProfile.value?.role == 'owner';
   bool get isSalesperson => userProfile.value?.role == 'salesperson';
   bool get isActive => userProfile.value?.isActive ?? false;
 
-  // ---------------------------------------------------------------------------
-  // LOGIN FLOW
-  // ---------------------------------------------------------------------------
-  Future<void> signIn(String email, String password) async {
+  // ============================================================
+  // SET PROFILE (used by SplashPage and Login)
+  // ============================================================
+  void setUserProfile(UserProfile? p) {
+    userProfile.value = p;
+  }
+
+  // ============================================================
+  // SIGN-IN
+  // ============================================================
+  Future<bool> signIn(String email, String password) async {
     try {
       isLoading.value = true;
 
-      // 1) SIGN IN
+      // 1) AUTH LOGIN
       final res = await AuthService.signIn(email, password);
-      if (res.session == null || res.user == null) {
-        Get.snackbar('Error', 'Invalid login credentials');
-        return;
+      if (res.user == null) {
+        Get.snackbar("Login Failed", "Invalid credentials");
+        return false;
       }
 
       final user = res.user!;
 
-      // 2) FETCH USER PROFILE (VERY IMPORTANT)
+      // 2) FETCH USER PROFILE
       final profile = await AuthService.fetchCurrentUserProfile();
       if (profile == null) {
-        Get.snackbar('Error', 'No profile found for this user');
+        Get.snackbar("Error", "User profile missing");
         await AuthService.signOut();
-        return;
+        return false;
       }
 
-      userProfile.value = profile;
+      setUserProfile(profile);
 
-      // 3) ACTIVE STATUS CHECK
+      // 3) ACCOUNT ACTIVE CHECK
       if (!isActive) {
-        Get.snackbar('Access Denied', 'Your account has been disabled.');
+        Get.snackbar("Access Denied", "Your account has been disabled.");
         await AuthService.signOut();
-        return;
+        return false;
       }
 
-      // 4) DEVICE AUTHORIZATION
-      final ok = await AuthService.verifyDeviceWithEdge(user.id);
+      // 4) DEVICE AUTH CHECK
+      final allowed = await AuthService.verifyDeviceWithEdge(user.id);
 
-      // OWNER → MUST BE AUTHORIZED
-      if (isOwner && !ok) {
+      if (isOwner && !allowed) {
         Get.snackbar(
-          'Device Not Authorized',
-          'Please approve this device first.',
+          "Device Not Authorized",
+          "Please approve this device from the owner dashboard.",
         );
         await AuthService.signOut();
-        return;
+        return false;
       }
 
-      // SALESPERSON → ALWAYS ALLOWED (no blocking)
-
-      // 5) NAVIGATE
-      _navigateByRole();
-
+      return true;
     } catch (e) {
-      Get.snackbar('Login Error', e.toString());
+      Get.snackbar("Login Error", e.toString());
+      return false;
     } finally {
       isLoading.value = false;
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // SESSION RESTORE ON APP START
-  // ---------------------------------------------------------------------------
-  Future<void> loadExistingSession() async {
+  // ============================================================
+  // SESSION RESTORE
+  // ============================================================
+  Future<bool> loadExistingSession() async {
     final user = _client.auth.currentUser;
 
-    if (user == null) {
-      Get.offAllNamed('/login');
-      return;
-    }
+    if (user == null) return false;
 
-    // ALWAYS fetch profile fresh (fixes wrong role issue)
-    final profile = await AuthService.fetchCurrentUserProfile();
+    try {
+      // Always fetch latest profile (role change support)
+      final profile = await AuthService.fetchCurrentUserProfile();
+      if (profile == null) {
+        await AuthService.signOut();
+        return false;
+      }
 
-    if (profile == null) {
+      setUserProfile(profile);
+
+      if (!isActive) {
+        await AuthService.signOut();
+        return false;
+      }
+
+      // Strict check for owner
+      final allowed = await AuthService.verifyDeviceWithEdge(user.id);
+
+      if (isOwner && !allowed) {
+        await AuthService.signOut();
+        return false;
+      }
+
+      return true;
+
+    } catch (e) {
       await AuthService.signOut();
-      Get.offAllNamed('/login');
-      return;
-    }
-
-    userProfile.value = profile;
-
-    if (!isActive) {
-      await AuthService.signOut();
-      Get.offAllNamed('/login');
-      return;
-    }
-
-    // DEVICE CHECK (owner strict)
-    final ok = await AuthService.verifyDeviceWithEdge(user.id);
-
-    if (isOwner && !ok) {
-      await AuthService.signOut();
-      Get.offAllNamed('/login');
-      return;
-    }
-
-    // CORRECT ROLE NAVIGATION
-    _navigateByRole();
-  }
-
-  // ---------------------------------------------------------------------------
-  // ROLE-BASED ROUTING
-  // ---------------------------------------------------------------------------
-  void _navigateByRole() {
-    if (isOwner) {
-      Get.offAllNamed('/home');   // Owner → 4 tabs
-    } else if (isSalesperson) {
-      Get.offAllNamed('/home');   // Salesperson → 2 tabs
-    } else {
-      Get.snackbar('Error', 'Unknown role');
-      AuthService.signOut();
+      return false;
     }
   }
 }

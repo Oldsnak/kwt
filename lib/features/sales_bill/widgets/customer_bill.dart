@@ -39,11 +39,6 @@ class _CustomerBillState extends State<CustomerBill> {
     try {
       setState(() => loading = true);
 
-      /// 1️⃣ BILL + CUSTOMER + SALESPERSON
-      ///
-      ///  - salesperson_id  → user_profiles.id
-      ///  - salesperson     → nested user_profiles(full_name)
-      ///  - customers       → nested customers(name, phone)
       final billRes = await _client
           .from('bills')
           .select('''
@@ -53,8 +48,8 @@ class _CustomerBillState extends State<CustomerBill> {
             total_items,
             total_discount,
             sub_total,
-            is_fully_paid,
             total_paid,
+            is_fully_paid,
             created_at,
             salesperson_id,
             salesperson:salesperson_id(full_name),
@@ -63,21 +58,19 @@ class _CustomerBillState extends State<CustomerBill> {
           .eq('id', widget.billId)
           .single();
 
-      // ✅ Safely resolve salesperson name
+      // ---- Fix salesperson name handling ----
       final sp = billRes['salesperson'];
       final spId = billRes['salesperson_id'];
 
       if (sp != null && sp['full_name'] != null) {
-        salespersonName = sp['full_name'] as String;
+        salespersonName = sp['full_name'];
       } else if (spId == null) {
-        // bill without salesperson_id → made by owner / imported
         salespersonName = "Owner";
       } else {
-        // fallback if profile missing
         salespersonName = "Sales Person";
       }
 
-      /// 2️⃣ ITEMS
+      // ---- Load items ----
       final itemsRes = await _client
           .from('sales')
           .select('''
@@ -102,14 +95,10 @@ class _CustomerBillState extends State<CustomerBill> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // EDIT PERMISSIONS
-  // ---------------------------------------------------------------------------
+  // ---------- Role-based Edit Permission ----------
   bool get canEditBill {
-    // OWNER → can edit ANY bill
     if (auth.isOwner) return true;
 
-    // SALESPERSON → can ONLY edit their own bills
     final billSalesperson = bill?["salesperson_id"];
     final currentUserId = auth.userProfile.value?.id;
 
@@ -126,7 +115,11 @@ class _CustomerBillState extends State<CustomerBill> {
       );
     }
 
+    final total = (bill!["total"] as num).toDouble();
+    final totalPaid = (bill!["total_paid"] as num).toDouble();
     final isPaid = bill!["is_fully_paid"] == true;
+
+    final double pending = (total - totalPaid).clamp(0, double.infinity);
 
     return Scaffold(
       body: SingleChildScrollView(
@@ -140,7 +133,6 @@ class _CustomerBillState extends State<CustomerBill> {
             children: [
               SizedBox(height: SSizes.defaultSpace),
 
-              // ------------------------- PAID / UNPAID IMAGE -------------------------
               SizedBox(
                 width: 150,
                 height: 150,
@@ -153,12 +145,10 @@ class _CustomerBillState extends State<CustomerBill> {
 
               SizedBox(height: SSizes.spaceBtwItems),
 
-              // ------------------------- GLASS CARD -------------------------
-              _buildCustomerCard(dark),
+              _buildCustomerCard(dark, pending),
 
               SizedBox(height: SSizes.spaceBtwSections),
 
-              // ------------------------- ITEMS TABLE -------------------------
               _buildDataTable(),
 
               SizedBox(height: 100),
@@ -167,7 +157,6 @@ class _CustomerBillState extends State<CustomerBill> {
         ),
       ),
 
-      // ---------------------- FLOATING EDIT BUTTON (ROLE-BASED) ----------------------
       floatingActionButton: canEditBill
           ? FloatingActionButton(
         backgroundColor: dark
@@ -192,10 +181,8 @@ class _CustomerBillState extends State<CustomerBill> {
     );
   }
 
-  // =======================================================================
-  // CUSTOMER INFO CARD
-  // =======================================================================
-  Widget _buildCustomerCard(bool dark) {
+  // -------------------------------------------------------------------
+  Widget _buildCustomerCard(bool dark, double pending) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: SSizes.defaultSpace),
       child: GlossyContainer(
@@ -219,21 +206,18 @@ class _CustomerBillState extends State<CustomerBill> {
               Icons.person,
               "Customer Name",
               bill!["customers"]?["name"] ?? "Walking Customer",
-              dark,
             ),
 
             _row(
               Icons.phone,
               "Mobile Number",
               bill!["customers"]?["phone"] ?? "-",
-              dark,
             ),
 
             _row(
               Icons.payments,
               "Total Amount",
-              bill!["total"].toStringAsFixed(0),
-              dark,
+              bill!["total"].toString(),
             ),
 
             _row(
@@ -241,23 +225,18 @@ class _CustomerBillState extends State<CustomerBill> {
               "Date & Time",
               DateFormat("dd-MM-yyyy • hh:mm a")
                   .format(DateTime.parse(bill!["created_at"])),
-              dark,
             ),
 
             _row(
               Icons.person_4,
               "Sales Person",
               salespersonName,
-              dark,
             ),
 
             _row(
               Icons.hourglass_bottom,
               "Pending Dues",
-              bill!["is_fully_paid"]
-                  ? "0"
-                  : bill!["total"].toString(),
-              dark,
+              pending.toStringAsFixed(0),
             ),
           ],
         ),
@@ -265,7 +244,7 @@ class _CustomerBillState extends State<CustomerBill> {
     );
   }
 
-  Widget _row(IconData icon, String label, String value, bool dark) {
+  Widget _row(IconData icon, String label, String value) {
     return Column(
       children: [
         const SizedBox(height: SSizes.xs),
@@ -293,52 +272,24 @@ class _CustomerBillState extends State<CustomerBill> {
         ),
         const SizedBox(height: SSizes.xs),
         Divider(
-          color: dark ? SColors.darkGrey : SColors.primary,
+          color: SColors.primary,
           thickness: 1,
         ),
       ],
     );
   }
 
-  // =======================================================================
-  // TABLE OF ITEMS
-  // =======================================================================
   Widget _buildDataTable() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
         columnSpacing: 20,
         columns: const [
-          DataColumn(
-            label: Text(
-              "Items",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          DataColumn(
-            label: Text(
-              "Price",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          DataColumn(
-            label: Text(
-              "Disc.",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          DataColumn(
-            label: Text(
-              "Pcs.",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          DataColumn(
-            label: Text(
-              "Total",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
+          DataColumn(label: Text("Items", style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text("Price", style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text("Disc.", style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text("Pcs.", style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text("Total", style: TextStyle(fontWeight: FontWeight.bold))),
         ],
         rows: items.map((data) {
           return DataRow(

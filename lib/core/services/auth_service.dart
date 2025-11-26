@@ -1,3 +1,4 @@
+import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_profile.dart';
 import 'supabase_service.dart';
@@ -8,70 +9,91 @@ class AuthService {
 
   static User? get currentUser => _client.auth.currentUser;
 
-  // ----------------------------------------------------------
-  // LOGIN
-  // ----------------------------------------------------------
+  // ============================================================
+  // LOGIN (Safe)
+  // ============================================================
   static Future<AuthResponse> signIn(String email, String password) async {
     try {
       final res = await _client.auth.signInWithPassword(
-        email: email,
+        email: email.trim(),
         password: password,
       );
 
       if (res.user == null) {
-        throw Exception("Invalid login credentials.");
+        throw Exception("Invalid login credentials");
       }
+
+      // --------------------------------------------------------
+      // 🔔 Trigger NEW LOGIN notification
+      // --------------------------------------------------------
+      try {
+        await _client.functions.invoke(
+          "generate_notifications",
+          body: {
+            "type": "new_login",
+            "payload": {"user_id": res.user!.id},
+          },
+        );
+      } catch (_) {}
 
       return res;
     } catch (e) {
-      print("AuthService.signIn error: $e");
+      Get.snackbar("Error", "❌ AuthService.signIn ERROR: $e");
       rethrow;
     }
   }
 
-  // ----------------------------------------------------------
+  // ============================================================
   // LOGOUT
-  // ----------------------------------------------------------
+  // ============================================================
   static Future<void> signOut() async {
-    await _client.auth.signOut();
+    try {
+      await _client.auth.signOut();
+    } catch (e) {
+      Get.snackbar("Error", "❌ AuthService.signOut ERROR: $e");
+    }
   }
 
-  // ----------------------------------------------------------
-  // CHECK ADMIN FLAG
-  // ----------------------------------------------------------
+  // ============================================================
+  // CHECK ADMIN (owner)
+  // ============================================================
   static Future<bool> isAdmin() async {
-    final user = currentUser;
-    if (user == null) return false;
+    try {
+      final user = currentUser;
+      if (user == null) return false;
 
-    final data = await _client
-        .from("user_profiles")
-        .select("is_admin")
-        .eq("id", user.id)
-        .maybeSingle();
+      final data = await _client
+          .from("user_profiles")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
 
-    return (data?["is_admin"] ?? false) as bool;
+      return data?["role"] == "owner";
+    } catch (e) {
+      Get.snackbar("Error", "❌ AuthService.isAdmin ERROR: $e");
+      return false;
+    }
   }
 
-  // ----------------------------------------------------------
-  // DEVICE AUTHORIZATION — Owner strict, Salesperson always allowed
-  // ----------------------------------------------------------
+  // ============================================================
+  // DEVICE AUTHORIZATION (updated logic + new edge API)
+  // ============================================================
   static Future<bool> verifyDeviceWithEdge(String userId) async {
-    // Current user ka profile nikaal lo
     final profile = await fetchCurrentUserProfile();
+
     if (profile == null) {
-      // Agar profile hi nahi mila to device ke basis pe block mat karo
-      return true;
+      return true; // Invalid profile → let RLS handle it
     }
 
-    // ------------------------------------------
-    // SALESPERSON → ALWAYS ALLOW (never block)
-    // ------------------------------------------
-    if (profile.role == 'salesperson') {
+    // ------------------------------------------------------------
+    // 1️⃣ SALESPERSON ALWAYS ALLOWED
+    // ------------------------------------------------------------
+    if (profile.role == "salesperson") {
       try {
         final deviceUid = await DeviceIdentifier.getId();
         final deviceName = await DeviceIdentifier.getName();
 
-        // Sirf notification / device register ke liye call
+        // Only register, NOT enforce authorization
         await _client.functions.invoke(
           "device_authorization",
           body: {
@@ -84,16 +106,16 @@ class AuthService {
           },
         );
       } catch (e) {
-        print("verifyDeviceWithEdge salesperson error: $e");
+        Get.snackbar(
+            "Error", "⚠️ Salesperson device register ERROR: $e");
       }
 
-      // Hamesha allow
       return true;
     }
 
-    // ------------------------------------------
-    // OWNER → strict device check
-    // ------------------------------------------
+    // ------------------------------------------------------------
+    // 2️⃣ OWNER MUST BE AUTHORIZED
+    // ------------------------------------------------------------
     try {
       final deviceUid = await DeviceIdentifier.getId();
       final deviceName = await DeviceIdentifier.getName();
@@ -112,17 +134,17 @@ class AuthService {
 
       final data = result.data;
 
-      // Owner ke liye device authorized hona zaroori hai
-      return data?['is_authorized'] == true;
+      // Owner is allowed only if edge function returned authorized = true
+      return data?["is_authorized"] == true;
     } catch (e) {
-      print("verifyDeviceWithEdge owner error: $e");
-      return false;
+      Get.snackbar("Error", "❌ Owner device check failed: $e");
+      return false; // Owners must be blocked if check fails
     }
   }
 
-  // ----------------------------------------------------------
-  // FETCH USER PROFILE — SAFE VERSION
-  // ----------------------------------------------------------
+  // ============================================================
+  // FETCH CURRENT USER PROFILE
+  // ============================================================
   static Future<UserProfile?> fetchCurrentUserProfile() async {
     final user = _client.auth.currentUser;
     if (user == null) return null;
@@ -134,16 +156,11 @@ class AuthService {
           .eq("id", user.id)
           .maybeSingle();
 
-      if (res == null) return null;
-
-      if (res is! Map) {
-        print("Profile is not Map: $res");
-        return null;
-      }
+      if (res == null || res is! Map) return null;
 
       return UserProfile.fromMap(res);
     } catch (e) {
-      print("fetchCurrentUserProfile error: $e");
+      Get.snackbar("Error", "❌ fetchCurrentUserProfile ERROR: $e");
       return null;
     }
   }

@@ -8,26 +8,40 @@ class ProductScanController extends GetxController {
   final ProductScanService _service = ProductScanService();
 
   final RxBool isScanning = false.obs;
+  final RxString errorMessage = ''.obs;
 
-  /// Scan barcode → return Product or null
+  /// Scan barcode → fetch product safely
   Future<Product?> find(String barcode) async {
     try {
       isScanning.value = true;
+      errorMessage.value = '';
 
-      // ✔ ProductScanService already returns Product
-      final product = await _service.getProductByBarcode(barcode);
+      final cleanCode = barcode.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+      if (cleanCode.isEmpty) {
+        errorMessage.value = "Invalid barcode";
+        return null;
+      }
+
+      print("🔍 CLEAN BARCODE SENT TO DB → '$cleanCode'");
+      final product = await _service.getProductByBarcode(cleanCode);
+
+      if (product == null) {
+        errorMessage.value = "Product not found";
+      }
 
       return product;
 
     } catch (e) {
-      print("ProductScanController.find error: $e");
+      errorMessage.value = "Scan failed: $e";
+      print("❌ ProductScanController.find error: $e");
       return null;
+
     } finally {
       isScanning.value = false;
     }
   }
 
-  /// Optional helper alias for scanning
+  /// Optional alias
   Future<Product?> scan(String barcode) async {
     return await find(barcode);
   }

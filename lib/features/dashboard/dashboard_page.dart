@@ -12,6 +12,7 @@ import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.da
 import 'package:kwt/widgets/layouts/grid_layout.dart';
 import 'package:kwt/widgets/products/product_cards/product_card_vertical.dart';
 import '../../core/controllers/notification_controller.dart';
+import '../../core/controllers/stock_controller.dart';
 import '../product_detail/product_detail_page.dart';
 
 class DashboardPage extends StatelessWidget {
@@ -20,6 +21,7 @@ class DashboardPage extends StatelessWidget {
   final CategoryController categoryController = Get.put(CategoryController());
   final ProductController productController = Get.put(ProductController());
   final TextEditingController _searchCtrl = TextEditingController();
+  final StockController stockController = Get.put(StockController());
 
   @override
   Widget build(BuildContext context) {
@@ -151,7 +153,11 @@ class DashboardPage extends StatelessWidget {
                       name: p.name,
                       totalProfit: netProfit,
                       totalStock: totalStock,
-                      onTap: () => Get.to(() => ProductDetailPage(productId: p.id!)),
+                      onTap: () {
+                        if (p.id != null) {
+                          Get.to(() => ProductDetailPage(productId: p.id!));
+                        }
+                      },
                     );
 
 

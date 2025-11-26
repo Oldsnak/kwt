@@ -7,7 +7,7 @@ class SellItemCard extends StatelessWidget {
   final String name;
   final double price;
   final int pieces;
-  final double discount; // 🔹 discount in Rupees (line discount)
+  final double discount; // 🔹 discount per piece in Rupees
 
   const SellItemCard({
     super.key,
@@ -26,8 +26,9 @@ class SellItemCard extends StatelessWidget {
       height: 100,
       margin: const EdgeInsets.only(right: SSizes.sm),
       decoration: BoxDecoration(
-        color:
-        dark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.6),
+        color: dark
+            ? Colors.white.withOpacity(0.1)
+            : Colors.white.withOpacity(0.6),
         border: Border.all(
           color: SColors.primary.withOpacity(0.8),
           width: 1.5,
@@ -77,9 +78,8 @@ class SellItemCard extends StatelessWidget {
               children: [
                 _infoRow(context, "Price", price.toStringAsFixed(0)),
                 _infoRow(context, "Pcs", pieces.toString()),
-                // 🔹 no percent sign, discount is Rs
-                _infoRow(
-                    context, "Disc", discount.toStringAsFixed(1)),
+                // 🔹 discount per piece (Rs)
+                _infoRow(context, "Disc", discount.toStringAsFixed(1)),
               ],
             ),
           ),

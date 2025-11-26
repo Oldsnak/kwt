@@ -1,53 +1,80 @@
-
 class CustomerPayment {
-  final String id;
-  final String customerId;
-  final double paidAmount;
-  final DateTime paymentDate;
-  final double? remainingBalance;
-  final DateTime? createdAt;
+  final String id;                // uuid
+  final String customerId;        // FK → customers.id
+  final String? billId;           // FK → bills.id (nullable for advance payments)
+  final double paidAmount;        // amount paid
+  final DateTime paymentDate;     // when payment was made
+  final DateTime? createdAt;      // Supabase auto-timestamp
+
+  // Optional joined fields (NOT in DB)
+  final String? billNo;           // from bills.bill_no
 
   CustomerPayment({
     required this.id,
     required this.customerId,
+    this.billId,
     required this.paidAmount,
     required this.paymentDate,
-    this.remainingBalance,
     this.createdAt,
+    this.billNo,
   });
 
-  factory CustomerPayment.fromJson(Map<String, dynamic> json) => CustomerPayment(
-    id: json['id'] as String,
-    customerId: json['customer_id'] as String,
-    paidAmount: (json['paid_amount'] as num).toDouble(),
-    paymentDate: DateTime.parse(json['payment_date'] as String),
-    remainingBalance: json['remaining_balance'] == null ? null : (json['remaining_balance'] as num).toDouble(),
-    createdAt: json['created_at'] == null ? null : DateTime.parse(json['created_at'] as String),
-  );
+  // ---------------------------------------------------------------------------
+  // FROM JSON (safe)
+  // ---------------------------------------------------------------------------
+  factory CustomerPayment.fromJson(Map<String, dynamic> json) {
+    return CustomerPayment(
+      id: json['id'] as String,
+      customerId: json['customer_id'] as String,
+      billId: json['bill_id'] as String?,
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'customer_id': customerId,
-    'paid_amount': paidAmount,
-    'payment_date': paymentDate.toIso8601String(),
-    'remaining_balance': remainingBalance,
-    'created_at': createdAt?.toIso8601String(),
-  };
+      paidAmount: (json['paid_amount'] as num).toDouble(),
 
+      paymentDate: DateTime.tryParse(json['payment_date'].toString()) ??
+          DateTime.now(),
+
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'].toString())
+          : null,
+
+      // Joined field (optional)
+      billNo: json['bills']?['bill_no']?.toString(),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // TO JSON (insert/update)
+  // Note: Do NOT send id, created_at — Supabase auto-generates
+  // ---------------------------------------------------------------------------
+  Map<String, dynamic> toJson() {
+    return {
+      'customer_id': customerId,
+      'bill_id': billId,
+      'paid_amount': paidAmount,
+      'payment_date': paymentDate.toIso8601String(),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // COPY WITH
+  // ---------------------------------------------------------------------------
   CustomerPayment copyWith({
     String? id,
     String? customerId,
+    String? billId,
     double? paidAmount,
     DateTime? paymentDate,
-    double? remainingBalance,
     DateTime? createdAt,
-  }) =>
-      CustomerPayment(
-        id: id ?? this.id,
-        customerId: customerId ?? this.customerId,
-        paidAmount: paidAmount ?? this.paidAmount,
-        paymentDate: paymentDate ?? this.paymentDate,
-        remainingBalance: remainingBalance ?? this.remainingBalance,
-        createdAt: createdAt ?? this.createdAt,
-      );
+    String? billNo,
+  }) {
+    return CustomerPayment(
+      id: id ?? this.id,
+      customerId: customerId ?? this.customerId,
+      billId: billId ?? this.billId,
+      paidAmount: paidAmount ?? this.paidAmount,
+      paymentDate: paymentDate ?? this.paymentDate,
+      createdAt: createdAt ?? this.createdAt,
+      billNo: billNo ?? this.billNo,
+    );
+  }
 }

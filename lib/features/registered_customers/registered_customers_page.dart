@@ -62,29 +62,40 @@ class _RegisteredCustomersPageState extends State<RegisteredCustomersPage> {
       final res = await _client
           .from('customers')
           .select('''
-            id,
-            name,
-            phone,
-            address,
-            customer_debts(remaining_amount, debt_amount)
-          ''').eq('is_active', true);
+          id,
+          name,
+          phone,
+          address,
+          customer_debts (
+            remaining_amount,
+            debt_amount
+          )
+        ''')
+          .eq('is_active', true);
 
       final list = (res as List).map<Map<String, dynamic>>((raw) {
         final map = Map<String, dynamic>.from(raw);
 
+        // ---- Safe read of nested customer_debts ----
         final List<dynamic> debts =
             (map['customer_debts'] as List?) ?? const [];
 
         double totalDebt = 0;
+
         for (final d in debts) {
-          final row = d as Map<String, dynamic>;
-          final num remaining = (row['remaining_amount'] as num?) ??
-              (row['debt_amount'] as num?) ??
-              0;
-          totalDebt += remaining.toDouble();
+          if (d == null) continue;
+
+          final row = Map<String, dynamic>.from(d);
+
+          // Correct handling based on your NEW project
+          final double remaining =
+              (row['remaining_amount'] as num?)?.toDouble() ??
+                  (row['debt_amount'] as num?)?.toDouble() ??
+                  0.0;
+
+          totalDebt += remaining;
         }
 
-        // A short, user-friendly customer code derived from UUID
         final String id = (map['id'] ?? '').toString();
         final String code = _buildCustomerCode(id);
 
@@ -102,14 +113,15 @@ class _RegisteredCustomersPageState extends State<RegisteredCustomersPage> {
         _allCustomers = list;
       });
     } catch (e) {
-      debugPrint('RegisteredCustomersPage._loadCustomers error: $e');
-      Get.snackbar('Error', 'Failed to load customers.');
+      debugPrint("RegisteredCustomersPage._loadCustomers error: $e");
+      Get.snackbar("Error", "Failed to load customers.");
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
+
 
   /// Create a short code like "A0S54" from a UUID.
   String _buildCustomerCode(String id) {

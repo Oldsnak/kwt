@@ -1,75 +1,88 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/product_model.dart';
-import '../models/category_model.dart';
 import 'dart:math';
+import 'package:flutter/material.dart';
 
 class ProductService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  // inside ProductService
-
+  // ===========================================================================
+  // FETCH ALL PRODUCTS (JOIN FIXED FOR SUPABASE V2)
+  // ===========================================================================
   Future<List<Product>> fetchProducts() async {
-    final response = await _client
-        .from('products')
-        .select('''
-        *,
-        categories(name),
-        sales:sales(
-          quantity,
-          selling_rate,
-          discount_per_piece,
-          original_rate,
-          sold_at
-        )
-      ''')
-        .order('created_at', ascending: false);
+    try {
+      final response = await _client
+          .from('products')
+          .select('''
+          *,
+          categories(name),
+          sales (
+            quantity,
+            selling_rate,
+            discount_per_piece,
+            sold_at
+          )
+        ''')
+          .order('created_at', ascending: false);
 
-    return response.map<Product>((row) {
-      final sales = row['sales'] as List<dynamic>? ?? [];
+      return response.map<Product>((row) {
+        final sales = row['sales'] as List<dynamic>? ?? [];
 
-      int totalSold = 0;
-      double totalProfit = 0;
+        int totalSold = 0;
+        double totalProfit = 0;
 
-      // removed sevenDaysAgo filtering
+        for (final s in sales) {
+          final qty = (s['quantity'] as num?)?.toInt() ?? 0;
+          final sellRate = (s['selling_rate'] as num?)?.toDouble() ?? 0;
+          final disc = (s['discount_per_piece'] as num?)?.toDouble() ?? 0;
 
-      for (final s in sales) {
-        final qty = (s['quantity'] as num?)?.toInt() ?? 0;
+          // Purchase rate ALWAYS comes from product table
+          final purchase = (row['purchase_rate'] as num?)?.toDouble() ?? 0;
 
-        final sellRate = (s['selling_rate'] as num?)?.toDouble() ?? 0;
-        final purchase = (s['original_rate'] as num?)?.toDouble() ?? 0;
-        final disc = (s['discount_per_piece'] as num?)?.toDouble() ?? 0;
+          final profitPerItem = (sellRate - disc) - purchase;
 
-        final profitPerItem = (sellRate - disc) - purchase;
+          totalSold += qty;
+          totalProfit += profitPerItem * qty;
+        }
 
-        totalSold += qty;
-        totalProfit += profitPerItem * qty;
-      }
+        double avgProfit = totalSold > 0 ? totalProfit / totalSold : 0;
 
-      double avgProfit = 0;
-      if (totalSold > 0) {
-        avgProfit = totalProfit / totalSold;
-      }
-
-      return Product.fromMap({
-        ...row,
-        'category_name': row['categories']?['name'],
-        'total_sold': totalSold,
-        'total_profit': totalProfit,
-        'avg_profit': avgProfit,
-      });
-    }).toList();
+        return Product.fromMap({
+          ...row,
+          "category_name": row["categories"]?["name"],
+          "total_sold": totalSold,
+          "total_profit": totalProfit,
+          "avg_profit": avgProfit,
+        });
+      }).toList();
+    } catch (e) {
+      print("❌ fetchProducts ERROR: $e");
+      throw Exception("Unable to load products: $e");
+    }
   }
 
 
+  // ===========================================================================
+  // FETCH PRODUCTS BY CATEGORY
+  // ===========================================================================
   Future<List<Product>> fetchProductsByCategory(String id) async {
-    final response = await _client
-        .from('products')
-        .select()
-        .eq('category_id', id);
+    try {
+      final response = await _client
+          .from('products')
+          .select()
+          .eq('category_id', id);
 
-    return response.map<Product>((row) => Product.fromMap(row)).toList();
+      return response.map<Product>((row) => Product.fromMap(row)).toList();
+    } catch (e) {
+      print("❌ fetchProductsByCategory ERROR: $e");
+      throw Exception("Unable to load category-wise products: $e");
+    }
   }
 
+
+  // ===========================================================================
+  // ADD NEW PRODUCT
+  // ===========================================================================
   Future<String> addNewProduct({
     required String name,
     required String categoryId,
@@ -78,44 +91,90 @@ class ProductService {
     required int stockQuantity,
     required String barcode,
   }) async {
-    final data = {
-      'name': name,
-      'category_id': categoryId,
-      'purchase_rate': purchaseRate,
-      'selling_rate': sellingRate,
-      'stock_quantity': stockQuantity,
-      'barcode': barcode,
-    };
+    try {
+      final existing = await _client
+          .from('products')
+          .select('id')
+          .eq('barcode', barcode)
+          .maybeSingle();
 
-    final response =
-    await _client.from('products').insert(data).select().single();
+      if (existing != null) {
+        throw Exception("Barcode already exists.");
+      }
 
-    return response['id'];
+      final response = await _client
+          .from('products')
+          .insert({
+        'name': name,
+        'category_id': categoryId,
+        'purchase_rate': purchaseRate,
+        'selling_rate': sellingRate,
+        'stock_quantity': stockQuantity,
+        'barcode': barcode,
+      })
+          .select()
+          .single();
+
+      return response['id'];
+    } catch (e) {
+      print("❌ addNewProduct ERROR: $e");
+      throw Exception("Failed to add product: $e");
+    }
   }
 
+
+  // ===========================================================================
+  // FIND PRODUCT BY BARCODE
+  // ===========================================================================
   Future<Product?> findByBarcode(String barcode) async {
-    final res = await _client
-        .from('products')
-        .select()
-        .eq('barcode', barcode)
-        .maybeSingle();
+    try {
+      final res = await _client
+          .from('products')
+          .select()
+          .eq('barcode', barcode)
+          .maybeSingle();
 
-    if (res == null) return null;
-
-    return Product.fromMap(res);
+      if (res == null) return null;
+      return Product.fromMap(res);
+    } catch (e) {
+      print("❌ findByBarcode ERROR: $e");
+      return null;
+    }
   }
 
+
+  // ===========================================================================
+  // BARCODE GENERATOR
+  // ===========================================================================
   String generateBarcode() {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     final random = Random();
     return List.generate(10, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
+  // ===========================================================================
+  // UPDATE PRODUCT
+  // ===========================================================================
   Future<void> updateProduct(String id, Product p) async {
-    await _client.from('products').update(p.toMap()).eq('id', id);
+    try {
+      await _client.from('products').update(p.toMap()).eq('id', id);
+    } catch (e) {
+      print("❌ updateProduct ERROR: $e");
+      throw Exception("Failed to update product: $e");
+    }
   }
 
+
+  // ===========================================================================
+  // DELETE PRODUCT
+  // ===========================================================================
   Future<void> deleteProduct(String id) async {
-    await _client.from('products').delete().eq('id', id);
+    try {
+      await _client.from('products').delete().eq('id', id);
+    } catch (e) {
+      print("❌ deleteProduct ERROR: $e");
+      throw Exception("Failed to delete product: $e");
+    }
   }
+
 }

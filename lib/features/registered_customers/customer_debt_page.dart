@@ -92,18 +92,20 @@ class _CustomerDebtPageState extends State<CustomerDebtPage> {
     try {
       setState(() => _loading = true);
 
-      // 1) Fetch debts with related bill numbers
+      // ================================
+      // 1) Fetch customer debts
+      // ================================
       final debtsRes = await _client
           .from('customer_debts')
           .select('''
-            id,
-            bill_id,
-            debt_amount,
-            remaining_amount,
-            created_at,
-            due_date,
-            bills(bill_no, created_at)
-          ''')
+          id,
+          bill_id,
+          debt_amount,
+          remaining_amount,
+          created_at,
+          due_date,
+          bills(bill_no, created_at)
+        ''')
           .eq('customer_id', widget.customerId)
           .order('created_at', ascending: true);
 
@@ -111,16 +113,16 @@ class _CustomerDebtPageState extends State<CustomerDebtPage> {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
 
-      // 2) Compute totals + "since" date
+      // Compute total debt + remaining + earliest date
       double totalDebtAmount = 0;
       double totalRemaining = 0;
       DateTime? earliest;
 
       for (final d in debtsList) {
-        final debtAmount = _toDouble(d['debt_amount']);
+        final debt = _toDouble(d['debt_amount']);
         final remaining = _toDouble(d['remaining_amount']);
 
-        totalDebtAmount += debtAmount;
+        totalDebtAmount += debt;
         totalRemaining += remaining;
 
         final createdAt = _toDate(d['created_at']);
@@ -131,39 +133,45 @@ class _CustomerDebtPageState extends State<CustomerDebtPage> {
         }
       }
 
-      // If no debts, fall back to customer.created_at
+      // If no debts → use customer's created_at
       if (earliest == null) {
-        final custRow = await _client
+        final customerRow = await _client
             .from('customers')
             .select('created_at')
             .eq('id', widget.customerId)
             .maybeSingle();
 
-        if (custRow != null) {
-          earliest = _toDate(custRow['created_at']);
+        if (customerRow != null) {
+          earliest = _toDate(customerRow['created_at']);
         }
       }
 
-      // 3) Fetch payments & build running remaining
-      final payRes = await _client
+      // ================================
+      // 2) Fetch payment history
+      // ================================
+      final paymentsRes = await _client
           .from('customer_payments')
-          .select('bill_id, paid_amount, payment_date')
+          .select('''
+          id,
+          paid_amount,
+          payment_date
+        ''')
           .eq('customer_id', widget.customerId)
           .order('payment_date', ascending: true);
 
-      final paymentsList = (payRes as List)
+      final paymentsList = (paymentsRes as List)
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
 
-      final List<Map<String, dynamic>> paidHistory = [];
+      List<Map<String, dynamic>> paidHistory = [];
       double runningPaid = 0;
 
       for (final p in paymentsList) {
         final paid = _toDouble(p['paid_amount']);
         runningPaid += paid;
 
-        final remainingAfter = (totalDebtAmount - runningPaid);
         final paymentDate = _toDate(p['payment_date']);
+        final remainingAfter = (totalDebtAmount - runningPaid);
 
         paidHistory.add({
           'date': paymentDate,
@@ -172,6 +180,9 @@ class _CustomerDebtPageState extends State<CustomerDebtPage> {
         });
       }
 
+      // ================================
+      // 3) Update State
+      // ================================
       setState(() {
         _debts = debtsList;
         _paidHistory = paidHistory;
@@ -179,12 +190,14 @@ class _CustomerDebtPageState extends State<CustomerDebtPage> {
         _sinceDate = earliest;
         _loading = false;
       });
-    } catch (e, st) {
-      debugPrint('CustomerDebtPage._loadData error: $e\n$st');
+
+    } catch (e) {
+      debugPrint("❌ load debt error: $e");
       setState(() => _loading = false);
       Get.snackbar('Error', 'Failed to load customer debt information.');
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

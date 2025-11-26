@@ -34,6 +34,7 @@ class _PayDebtPageState extends State<PayDebtPage> {
 
   Future<void> _submitPayment() async {
     final payText = _payCtrl.text.trim();
+
     if (payText.isEmpty) {
       Get.snackbar("Error", "Please enter payment amount.");
       return;
@@ -53,66 +54,83 @@ class _PayDebtPageState extends State<PayDebtPage> {
     setState(() => _loading = true);
 
     try {
-      // -------------------------------------------
-      // 1) Fetch all active debt rows for customer
-      // -------------------------------------------
+      // ------------------------------------------------------------------
+      // 1) FETCH ACTIVE DEBTS (FIFO order)
+      // ------------------------------------------------------------------
       final debts = await _client
           .from("customer_debts")
-          .select()
+          .select("""
+          id,
+          debt_amount,
+          remaining_amount,
+          created_at
+        """)
           .eq("customer_id", widget.customerId)
           .order("created_at", ascending: true);
 
       double leftToPay = amount;
 
-      // -------------------------------------------
-      // 2) Reduce remaining_amount FIFO
-      // -------------------------------------------
+      // ------------------------------------------------------------------
+      // 2) APPLY PAYMENT FIFO
+      // ------------------------------------------------------------------
       for (final row in debts) {
         if (leftToPay <= 0) break;
 
-        final debtId = row['id'];
-        final currentRemaining =
-            (row['remaining_amount'] as num?)?.toDouble() ??
-                (row['debt_amount'] as num?)?.toDouble() ??
-                0.0;
+        final debtId = row["id"];
+        double remaining = 0;
 
-        if (currentRemaining <= 0) continue;
+        if (row["remaining_amount"] != null) {
+          remaining = (row["remaining_amount"] as num).toDouble();
+        } else if (row["debt_amount"] != null) {
+          remaining = (row["debt_amount"] as num).toDouble();
+        }
 
-        if (leftToPay >= currentRemaining) {
-          // Completely clear this debt row
-          await _client.from("customer_debts").update({
-            "remaining_amount": 0,
-          }).eq("id", debtId);
+        if (remaining <= 0) continue;
 
-          leftToPay -= currentRemaining;
+        if (leftToPay >= remaining) {
+          // Full clearance of this debt row
+          await _client
+              .from("customer_debts")
+              .update({"remaining_amount": 0})
+              .eq("id", debtId);
+
+          leftToPay -= remaining;
         } else {
-          // Partially reduce
-          await _client.from("customer_debts").update({
-            "remaining_amount": currentRemaining - leftToPay,
-          }).eq("id", debtId);
+          // Partial update
+          final newRemaining = remaining - leftToPay;
+
+          await _client
+              .from("customer_debts")
+              .update({"remaining_amount": newRemaining})
+              .eq("id", debtId);
 
           leftToPay = 0;
         }
       }
 
-      // -------------------------------------------
-      // 3) Insert into customer_payments
-      // -------------------------------------------
+      // ------------------------------------------------------------------
+      // 3) INSERT PAYMENT RECORD
+      // ------------------------------------------------------------------
       await _client.from("customer_payments").insert({
         "customer_id": widget.customerId,
         "paid_amount": amount,
         "payment_date": DateTime.now().toIso8601String(),
       });
 
+      // ------------------------------------------------------------------
+      // 4) SUCCESS → return
+      // ------------------------------------------------------------------
       Get.back(result: true);
       Get.snackbar("Success", "Debt payment recorded successfully.");
 
-    } catch (e) {
-      Get.snackbar("Error", e.toString());
+    } catch (e, st) {
+      debugPrint("PayDebt Error: $e\n$st");
+      Get.snackbar("Error", "Failed to record payment.");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +155,7 @@ class _PayDebtPageState extends State<PayDebtPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-          
+
                   // ------------------ REMAINING DEBT ------------------
                   Text(
                     "Remaining Debt",
@@ -155,7 +173,7 @@ class _PayDebtPageState extends State<PayDebtPage> {
                     ),
                   ),
                   const SizedBox(height: 30),
-          
+
                   // ------------------ TEXT FIELD ------------------
                   TextField(
                     controller: _payCtrl,
@@ -175,9 +193,9 @@ class _PayDebtPageState extends State<PayDebtPage> {
                       ),
                     ),
                   ),
-          
+
                   const SizedBox(height: 30),
-          
+
                   // ------------------ BUTTON ------------------
                   SizedBox(
                     width: double.infinity,

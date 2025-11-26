@@ -1,6 +1,7 @@
 // lib/core/services/category_service.dart
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/category_model.dart';
+import 'package:flutter/material.dart';
 
 class CategoryService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -17,7 +18,7 @@ class CategoryService {
           .map((json) => CategoryModel.fromMap(json))
           .toList();
     } catch (e) {
-      print("❌ CategoryService.fetchCategories error: $e");
+      SnackBar(content:Text("❌ CategoryService.fetchCategories ERROR: $e"),);
       rethrow;
     }
   }
@@ -29,7 +30,7 @@ class CategoryService {
     try {
       await _client.from('categories').insert(category.toMap());
     } catch (e) {
-      print("❌ CategoryService.addCategory error: $e");
+      SnackBar(content:Text("❌ CategoryService.addCategory ERROR: $e"),);
       rethrow;
     }
   }
@@ -44,7 +45,7 @@ class CategoryService {
           .update(category.toMap())
           .eq('id', id);
     } catch (e) {
-      print("❌ CategoryService.updateCategory error: $e");
+      SnackBar(content:Text("❌ CategoryService.updateCategory ERROR: $e"),);
       rethrow;
     }
   }
@@ -56,7 +57,7 @@ class CategoryService {
     try {
       await _client.from('categories').delete().eq('id', id);
     } catch (e) {
-      print("❌ CategoryService.deleteCategory error: $e");
+      SnackBar(content:Text("❌ CategoryService.deleteCategory ERROR: $e"),);
       rethrow;
     }
   }

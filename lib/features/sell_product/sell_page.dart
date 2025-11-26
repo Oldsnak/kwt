@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:kwt/features/sell_product/widgets/sell_item_card.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:kwt/app/theme/colors.dart';
 import 'package:kwt/core/constants/app_sizes.dart';
 import 'package:kwt/core/utils/helpers.dart';
 import 'package:kwt/widgets/custom_shapes/containers/primary_header_container.dart';
 import 'package:kwt/widgets/texts/section_heading.dart';
+
+import 'package:kwt/core/controllers/sell_controller.dart';
+import 'package:kwt/core/models/product_model.dart';
+
+import '../../core/controllers/product_scan_controller.dart';
 import 'add_item_page.dart';
 import 'checkout_page.dart';
 
@@ -22,7 +27,7 @@ class SellPage extends StatefulWidget {
     this.editingBillId,
     this.editingBillNo,
     this.editingCustomerName,
-    this.editingItems
+    this.editingItems,
   });
 
   @override
@@ -30,201 +35,115 @@ class SellPage extends StatefulWidget {
 }
 
 class _SellPageState extends State<SellPage> {
-  final SupabaseClient _client = Supabase.instance.client;
+  /// Use central SellController (RPC-based)
+  final SellController sellController = Get.find<SellController>();
 
-  /// Line items in current bill
-  final List<Map<String, dynamic>> billItems = [];
+  /// Use ProductScanController for barcode → Product lookup
+  final ProductScanController scanController = Get.find<ProductScanController>();
 
   final TextEditingController customerCtrl = TextEditingController();
-
-  /// ✅ Ab bill number TEXT hoga (e.g. A0000, A0001, ...)
-  String? billNo;
 
   bool showTrash = false;
 
   @override
-  @override
   void initState() {
     super.initState();
 
-    if (widget.editingBillId != null) {
-      /// EDIT MODE
-      billNo = widget.editingBillNo;
-      customerCtrl.text = widget.editingCustomerName ?? "";
+    // -------------------------------
+    // 🚫 DO NOT RESET when editing bill
+    // -------------------------------
+    if (widget.editingBillId == null) {
+      // NEW BILL → safe to clear UI items only
+      sellController.billItems.clear();
+      sellController.customerName.value = "";
+    }
 
-      billItems.clear();
-      for (final item in widget.editingItems!) {
-        billItems.add({
+    // -------------------------------
+    // EDIT MODE
+    // -------------------------------
+    if (widget.editingBillId != null && widget.editingItems != null) {
+      sellController.billNo.value =
+          widget.editingBillNo ?? sellController.billNo.value;
+
+      customerCtrl.text = widget.editingCustomerName ?? '';
+
+      final mapped = widget.editingItems!.map((item) {
+        return {
           'id': item['product_id'],
-          'name': item['products']['name'],
-          'price': item['selling_rate'],
-          'pieces': item['quantity'],
-          'discount': item['discount_per_piece'],
-          'total': item['line_total'],
-        });
-      }
-    } else {
-      /// NEW BILL
-      _fetchNextBillNo();
+          'name': item['products']?['name']?.toString() ?? "",   // FIX
+          'product_name': item['products']?['name']?.toString(), // NEW FIX
+          'price': (item['selling_rate'] as num?)?.toDouble() ?? 0,
+          'pieces': (item['quantity'] as num?)?.toInt() ?? 0,
+          'discount': (item['discount_per_piece'] as num?)?.toDouble() ?? 0,
+          'total': (item['line_total'] as num?)?.toDouble() ?? 0,
+        };
+      }).toList();
+
+
+      sellController.billItems.assignAll(mapped);
     }
+
+    // 🚫 DO NOT call loadNextBillNo here — SellController handles it.
   }
 
 
   // ---------------------------------------------------------------------------
-  // FETCH NEXT BILL NUMBER: pattern [A-Z][A-Z0-9]{4}
+  // BILL TOTALS (delegated to SellController)
   // ---------------------------------------------------------------------------
-  Future<void> _fetchNextBillNo() async {
-    try {
-      final result = await _client
-          .from('bills')
-          .select('bill_no')
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      setState(() {
-        if (result == null || result['bill_no'] == null) {
-          // No bills yet → start from A0000
-          billNo = 'A0000';
-        } else {
-          final last = (result['bill_no'] as String).trim();
-          billNo = _getNextBillNo(last);
-        }
-      });
-    } catch (e) {
-      print("Error fetching bill number: $e");
-      Get.snackbar("Error", "Failed to load bill number, using fallback.");
-      // Fallback safe start
-      setState(() {
-        billNo = 'A0000';
-      });
-    }
-  }
-
-  /// ✅ Generate next bill number from last one
-  /// last: e.g. A0000 → A0001 → ... → A000Z → A0010 → ... → ZZZZZ
-  String _getNextBillNo(String last) {
-    final regex = RegExp(r'^[A-Z][A-Z0-9]{4}$');
-    if (!regex.hasMatch(last)) {
-      // Agar kisi wajah se DB me galat format mila, hum safe side par reset kar denge
-      return 'A0000';
-    }
-
-    const digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    final chars = last.split(''); // [A,0,0,0,0]
-
-    // Rightmost 4 positions (index 4 → 1) ko base36 me increment karna
-    for (int i = 4; i >= 1; i--) {
-      final current = chars[i];
-      final idx = digits.indexOf(current);
-      if (idx == -1) {
-        return 'A0000'; // unexpected char → reset
-      }
-
-      if (idx < digits.length - 1) {
-        // Normal increment
-        chars[i] = digits[idx + 1];
-        return chars.join();
-      } else {
-        // Z → overflow → is position ko 0 karo aur next left position pe jao
-        chars[i] = '0';
-      }
-    }
-
-    // Agar yahan tak aaye, iska matlab last 4 positions sab overflow ho chuki
-    // Ab first letter ko A→B→C...Z increment karna hoga
-    final first = chars[0];
-    if (first != 'Z') {
-      final nextCharCode = first.codeUnitAt(0) + 1; // A→B etc.
-      chars[0] = String.fromCharCode(nextCharCode);
-      // Baaki 4 ko reset
-      chars[1] = '0';
-      chars[2] = '0';
-      chars[3] = '0';
-      chars[4] = '0';
-      return chars.join();
-    } else {
-      // Z ke baad koi letter nahi bacha → theoretical limit reached
-      // Tum chaho to yahan error throw kar sakte ho ya wrap kar sakte ho.
-      throw Exception('Bill number limit reached (ZZZZZ).');
-    }
-  }
+  double get _subTotal => sellController.subTotal;
+  double get _totalDiscount => sellController.totalDiscount;
+  double get _total => sellController.total;
 
   // ---------------------------------------------------------------------------
-  // BILL TOTALS WITH PER-PIECE DISCOUNT
-  // ---------------------------------------------------------------------------
-  double get subTotal {
-    double sum = 0;
-    for (final item in billItems) {
-      final double price =
-          (item['price'] as num?)?.toDouble() ?? 0.0; // unit price
-      final int pcs = (item['pieces'] as num?)?.toInt() ?? 0;
-      sum += price * pcs;
-    }
-    return sum;
-  }
-
-  double get totalDiscount {
-    double sum = 0;
-    for (final item in billItems) {
-      final double discPerPiece =
-          (item['discount'] as num?)?.toDouble() ?? 0.0;
-      final int pcs = (item['pieces'] as num?)?.toInt() ?? 0;
-      sum += discPerPiece * pcs;
-    }
-    return sum;
-  }
-
-  double get total => subTotal - totalDiscount;
-
-  // ---------------------------------------------------------------------------
-  // MUTATIONS
+  // MUTATIONS (delegate to SellController)
   // ---------------------------------------------------------------------------
   void _addProduct(Map<String, dynamic> product) {
-    setState(() {
-      billItems.add(product);
-    });
+    sellController.addItem(product);
   }
 
   void _updateProduct(int index, Map<String, dynamic> updated) {
-    setState(() {
-      billItems[index] = updated;
-    });
+    sellController.updateItem(index, updated);
   }
 
   void _removeProduct(Map<String, dynamic> product) {
-    setState(() {
-      billItems.remove(product);
-    });
+    sellController.removeItem(product);
   }
 
   // ---------------------------------------------------------------------------
-  // BARCODE SCAN → FETCH PRODUCT → OPEN AddItemPage
+  // BARCODE SCAN → ProductScanController → AddItemPage
   // ---------------------------------------------------------------------------
   Future<void> _startBarcodeScan(BuildContext context) async {
     final barcode = await Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (_) => const _ScannerPage()),
     );
-
+    // print("📷 SCANNED BARCODE RAW → '$barcode'");
     if (barcode == null || barcode.isEmpty) return;
 
     try {
-      final product = await _client
-          .from('products')
-          .select()
-          .eq('barcode', barcode)
-          .maybeSingle();
+      final Product? product = await scanController.find(barcode);
 
       if (product == null) {
         Get.snackbar("Not Found", "No product found for this barcode");
         return;
       }
 
-      final result = await Get.to(() => AddItemPage(
-        scannedProduct: product,
-        fromScan: true,
-      ));
+      // Map Product → Map to stay compatible with AddItemPage
+      final scannedMap = {
+        'id': product.id,
+        'name': product.name,
+        'selling_rate': product.sellingRate,
+        'purchase_rate': product.purchaseRate,
+        'stock_quantity': product.stockQuantity,
+        'barcode': product.barcode,
+      };
+
+      final result = await Get.to(
+            () => AddItemPage(
+          scannedProduct: scannedMap,
+          fromScan: true,
+        ),
+      );
 
       if (result != null && result is Map<String, dynamic>) {
         _addProduct(result);
@@ -263,18 +182,21 @@ class _SellPageState extends State<SellPage> {
                     children: [
                       const SizedBox(height: SSizes.appBarHeight),
                       Center(
-                        child: Text(
-                          billNo == null
-                              ? "Loading Bill..."
-                              : "Bill # $billNo", // ✅ Ab direct bill code show hoga, koi extra 'B' nahi
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineLarge!
-                              .apply(
-                            color: Colors.black,
-                            fontWeightDelta: 2,
-                          ),
-                        ),
+                        child: Obx(() {
+                          final code = sellController.billNo.value;
+                          return Text(
+                            code.isEmpty
+                                ? "Loading Bill..."
+                                : "Bill # $code",
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineLarge!
+                                .apply(
+                              color: Colors.black,
+                              fontWeightDelta: 2,
+                            ),
+                          );
+                        }),
                       ),
                       const SizedBox(height: SSizes.spaceBtwItems),
                       Container(
@@ -391,79 +313,96 @@ class _SellPageState extends State<SellPage> {
                               textColor: Colors.black,
                             ),
                             const SizedBox(height: SSizes.sm),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  const SizedBox(width: 10),
-                                  ...billItems.map((item) {
-                                    final index =
-                                    billItems.indexOf(item);
-                                    return Draggable<
-                                        Map<String, dynamic>>(
-                                      data: item,
-                                      feedback: Opacity(
-                                        opacity: 0.7,
-                                        child: SellItemCard(
-                                          name: item['name'],
-                                          price: (item['price']
-                                          as num?)
-                                              ?.toDouble() ??
-                                              0.0,
-                                          pieces:
-                                          (item['pieces'] as num?)
-                                              ?.toInt() ??
-                                              0,
-                                          discount:
-                                          (item['discount']
-                                          as num?)
-                                              ?.toDouble() ??
-                                              0.0,
+                            Obx(() {
+                              final items =
+                                  sellController.billItems;
+
+                              return SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    const SizedBox(width: 10),
+                                    ...items.map((item) {
+                                      final index =
+                                      items.indexOf(item);
+                                      return Draggable<
+                                          Map<String, dynamic>>(
+                                        data: item,
+                                        feedback: Opacity(
+                                          opacity: 0.7,
+                                          child: SellItemCard(
+                                            name: item['name']?.toString()
+                                                ?? item['product_name']?.toString()
+                                                ?? item['products']?['name']?.toString()
+                                                ?? "",
+                                            price: (item['price']
+                                            as num?)
+                                                ?.toDouble() ??
+                                                0.0,
+                                            pieces:
+                                            (item['pieces']
+                                            as num?)
+                                                ?.toInt() ??
+                                                0,
+                                            discount:
+                                            (item['discount']
+                                            as num?)
+                                                ?.toDouble() ??
+                                                0.0,
+                                          ),
                                         ),
-                                      ),
-                                      childWhenDragging:
-                                      const SizedBox(width: 100),
-                                      onDragStarted: () => setState(
-                                              () => showTrash = true),
-                                      onDragEnd: (_) => setState(
-                                              () => showTrash = false),
-                                      child: GestureDetector(
-                                        onTap: () async {
-                                          final updated =
-                                          await Get.to(() =>
-                                              AddItemPage(
+                                        childWhenDragging:
+                                        const SizedBox(
+                                            width: 100),
+                                        onDragStarted: () =>
+                                            setState(() =>
+                                            showTrash = true),
+                                        onDragEnd: (_) =>
+                                            setState(() =>
+                                            showTrash = false),
+                                        child: GestureDetector(
+                                          onTap: () async {
+                                            final updated =
+                                            await Get.to(
+                                                  () => AddItemPage(
                                                   existingItem:
-                                                  item));
-                                          if (updated != null &&
-                                              updated
-                                              is Map<String,
-                                                  dynamic>) {
-                                            _updateProduct(
-                                                index, updated);
-                                          }
-                                        },
-                                        child: SellItemCard(
-                                          name: item['name'],
-                                          price: (item['price']
-                                          as num?)
-                                              ?.toDouble() ??
-                                              0.0,
-                                          pieces:
-                                          (item['pieces'] as num?)
-                                              ?.toInt() ??
-                                              0,
-                                          discount:
-                                          (item['discount']
-                                          as num?)
-                                              ?.toDouble() ??
-                                              0.0,
+                                                  item),
+                                            );
+                                            if (updated != null &&
+                                                updated
+                                                is Map<String,
+                                                    dynamic>) {
+                                              _updateProduct(
+                                                  index, updated);
+                                            }
+                                          },
+                                          child: SellItemCard(
+                                            name: item['name']?.toString()
+                                                ?? item['product_name']?.toString()
+                                                ?? item['products']?['name']?.toString()
+                                                ?? "",
+                                            price: (item['price']
+                                            as num?)
+                                                ?.toDouble() ??
+                                                0.0,
+                                            pieces:
+                                            (item['pieces']
+                                            as num?)
+                                                ?.toInt() ??
+                                                0,
+                                            discount:
+                                            (item['discount']
+                                            as num?)
+                                                ?.toDouble() ??
+                                                0.0,
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ],
-                              ),
-                            ),
+                                      );
+                                    }).toList(),
+                                  ],
+                                ),
+                              );
+                            }),
                           ],
                         ),
                       ),
@@ -481,59 +420,81 @@ class _SellPageState extends State<SellPage> {
                       Container(
                         height: 50,
                         alignment: Alignment.center,
-                        child: Text(
-                          "Total: ${total.toStringAsFixed(2)}",
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium!
-                              .copyWith(
-                              fontWeight: FontWeight.bold),
-                        ),
+                        child: Obx(() {
+                          final t = _total;
+                          return Text(
+                            "Total: ${t.toStringAsFixed(2)}",
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium!
+                                .copyWith(
+                                fontWeight: FontWeight.bold),
+                          );
+                        }),
                       ),
                       const SizedBox(height: SSizes.spaceBtwItems),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columns: const [
-                            DataColumn(label: Text('Items')),
-                            DataColumn(label: Text('Price')),
-                            DataColumn(label: Text('Disc.')),
-                            DataColumn(label: Text('Pcs.')),
-                            DataColumn(label: Text('Total')),
-                          ],
-                          rows: billItems.map((data) {
-                            final lineTotal = _lineTotal(data);
-                            return DataRow(cells: [
-                              DataCell(Text(data['name'] ?? '')),
-                              DataCell(
-                                  Text('${data['price'] ?? 0}')),
-                              DataCell(
-                                  Text('${data['discount'] ?? 0}')),
-                              DataCell(
-                                  Text('${data['pieces'] ?? 0}')),
-                              DataCell(Text(
-                                  lineTotal.toStringAsFixed(2))),
-                            ]);
-                          }).toList(),
-                        ),
-                      ),
+                      Obx(() {
+                        final items = sellController.billItems;
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            columns: const [
+                              DataColumn(label: Text('Items')),
+                              DataColumn(label: Text('Price')),
+                              DataColumn(label: Text('Disc.')),
+                              DataColumn(label: Text('Pcs.')),
+                              DataColumn(label: Text('Total')),
+                            ],
+                            rows: items.map((data) {
+                              final lineTotal =
+                              _lineTotal(data);
+                              return DataRow(cells: [
+                                DataCell(Text(
+                                    (data['name']?.toString()
+                                        ?? data['product_name']?.toString()
+                                        ?? data['products']?['name']?.toString()
+                                        ?? "")
+                                )),
+                                DataCell(Text(
+                                    '${data['price'] ?? 0}')),
+                                DataCell(Text(
+                                    '${data['discount'] ?? 0}')),
+                                DataCell(Text(
+                                    '${data['pieces'] ?? 0}')),
+                                DataCell(Text(lineTotal
+                                    .toStringAsFixed(2))),
+                              ]);
+                            }).toList(),
+                          ),
+                        );
+                      }),
                       const SizedBox(height: 25),
                       ElevatedButton(
                         onPressed: () {
-                          if (billNo == null) {
-                            Get.snackbar(
-                                "Bill", "Bill number not ready yet.");
+                          final billCode =
+                              sellController.billNo.value;
+                          if (billCode.isEmpty) {
+                            Get.snackbar("Bill",
+                                "Bill number not ready yet.");
                             return;
                           }
+
+                          // sync name into controller too (optional)
+                          sellController.customerName.value =
+                              customerCtrl.text.trim();
+
+                          final items =
+                          sellController.billItems.toList();
+
                           Get.to(
                                 () => CheckoutPage(
-                              billNo: billNo!, // ✅ String
-                              items: billItems,
+                              billNo: billCode,
+                              items: items,
                               customerName:
                               customerCtrl.text.trim(),
-                              subTotal: subTotal,
-                              totalDiscount: totalDiscount,
-                              total: total,
+                              subTotal: _subTotal,
+                              totalDiscount: _totalDiscount,
+                              total: _total,
                             ),
                           );
                         },
@@ -642,7 +603,6 @@ class _ScannerPageState extends State<_ScannerPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Scan Product"),
-        backgroundColor: SColors.primary,
         foregroundColor: Colors.white,
       ),
       body: Stack(

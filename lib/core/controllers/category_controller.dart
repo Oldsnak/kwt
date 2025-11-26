@@ -1,4 +1,5 @@
 // lib/core/controllers/category_controller.dart
+
 import 'package:get/get.dart';
 import '../models/category_model.dart';
 import '../services/category_service.dart';
@@ -6,70 +7,84 @@ import '../services/category_service.dart';
 class CategoryController extends GetxController {
   final CategoryService _service = CategoryService();
 
-  /// All categories
+  /// All categories loaded from Supabase
   final RxList<CategoryModel> categories = <CategoryModel>[].obs;
 
-  /// Loading flag
+  /// Active loading state
   final RxBool isLoading = false.obs;
 
-  /// Selected category for dashboard filter
+  /// Selected category for filtering products in dashboard
+  /// null = "All categories"
   final RxnString selectedCategoryId = RxnString();
 
   @override
   void onInit() {
     super.onInit();
-    load();
+    loadCategories();
   }
 
   // ===========================================================================
-  // LOAD CATEGORIES
+  // LOAD CATEGORIES (Safe + Error-Handled + RLS Compliant)
   // ===========================================================================
-  Future<void> load() async {
+  Future<void> loadCategories() async {
     try {
       isLoading.value = true;
-      final List<CategoryModel> res = await _service.fetchCategories();
-      categories.assignAll(res);
+
+      final list = await _service.fetchCategories();
+      categories.assignAll(list);
     } catch (e) {
-      print("❌ CategoryController.load error: $e");
+      print("❌ CategoryController.loadCategories error: $e");
     } finally {
       isLoading.value = false;
     }
   }
 
   // ===========================================================================
-  // CRUD OPERATIONS
+  // ADD CATEGORY
   // ===========================================================================
-  Future<void> add(CategoryModel c) async {
+  Future<bool> addCategory(CategoryModel c) async {
     try {
       await _service.addCategory(c);
-      await load();
+      await loadCategories();
+      return true;
     } catch (e) {
-      print("❌ CategoryController.add error: $e");
+      print("❌ CategoryController.addCategory error: $e");
+      return false;
     }
   }
 
-  Future<void> updateCategory(String id, CategoryModel c) async {
+  // ===========================================================================
+  // UPDATE CATEGORY
+  // ===========================================================================
+  Future<bool> updateCategory(String id, CategoryModel c) async {
     try {
       await _service.updateCategory(id, c);
-      await load();
+      await loadCategories();
+      return true;
     } catch (e) {
       print("❌ CategoryController.updateCategory error: $e");
+      return false;
     }
   }
 
-  Future<void> remove(String id) async {
+  // ===========================================================================
+  // DELETE CATEGORY
+  // ===========================================================================
+  Future<bool> removeCategory(String id) async {
     try {
       await _service.deleteCategory(id);
       categories.removeWhere((x) => x.id == id);
+      return true;
     } catch (e) {
-      print("❌ CategoryController.remove error: $e");
+      print("❌ CategoryController.removeCategory error: $e");
+      return false;
     }
   }
 
   // ===========================================================================
-  // SELECT CATEGORY FOR DASHBOARD
+  // SELECT CATEGORY FOR DASHBOARD FILTER
   // ===========================================================================
   void selectCategory(String? id) {
-    selectedCategoryId.value = id; // ← null means "All"
+    selectedCategoryId.value = id; // null = show all items
   }
 }

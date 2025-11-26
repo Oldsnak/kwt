@@ -45,7 +45,7 @@ class AppPages {
 
     // Settings
     GetPage(name: AppRoutes.settings, page: () => const SettingsPage()),
-    GetPage(name: AppRoutes.addItem, page: () => AddItemPage()),
+    GetPage(name: AppRoutes.addItem, page: () => AddNewItemPage()),
     GetPage(name: AppRoutes.notifications, page: () => const NotificationsPage()),
     GetPage(name: AppRoutes.removeItems, page: () => const RemoveItemsPage()),
 

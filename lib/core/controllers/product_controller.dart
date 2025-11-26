@@ -7,16 +7,16 @@ import '../models/product_model.dart';
 class ProductController extends GetxController {
   final ProductService _service = ProductService();
 
-  /// All products (with analytics)
-  RxList<Product> products = <Product>[].obs;
+  /// All products for dashboard + analytics
+  final RxList<Product> products = <Product>[].obs;
 
-  /// Filtered list (dashboard)
-  RxList<Product> filteredProducts = <Product>[].obs;
+  /// Filtered products (after category + search)
+  final RxList<Product> filteredProducts = <Product>[].obs;
 
-  /// Loaders
-  RxBool isLoading = false.obs;
+  /// Loader
+  final RxBool isLoading = false.obs;
 
-  /// Search & category filters
+  /// Filters
   String _searchQuery = "";
   final RxnString selectedCategoryId = RxnString();
 
@@ -25,75 +25,76 @@ class ProductController extends GetxController {
     super.onInit();
     loadProducts();
 
-    /// when products update → re-filter
+    /// Jab products refresh hote hain → filters apply
     ever(products, (_) => _applyFilters());
   }
 
-  // ---------------------------------------------------------------------------
-  // LOAD ALL PRODUCTS WITH ANALYTICS (ONLY ONCE)
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // LOAD ALL PRODUCTS (with analytics from Supabase)
+  // ===========================================================================
   Future<void> loadProducts() async {
     try {
       isLoading.value = true;
 
-      final list = await _service.fetchProducts(); // analytics included
+      final list = await _service.fetchProducts();
       products.assignAll(list);
 
       _applyFilters();
-
     } catch (e) {
-      print("❌ loadProducts error: $e");
+      print("❌ ProductController.loadProducts error: $e");
     } finally {
       isLoading.value = false;
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // SEARCH FILTER
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // SEARCH
+  // ===========================================================================
   void updateSearch(String query) {
-    _searchQuery = query.toLowerCase();
+    _searchQuery = query.toLowerCase().trim();
     _applyFilters();
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // CATEGORY FILTER
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   void filterByCategory(String? categoryId) {
     selectedCategoryId.value = categoryId;
     _applyFilters();
   }
 
-  // ---------------------------------------------------------------------------
-  // APPLY FILTERS (SEARCH + CATEGORY)
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // APPLY FILTERS
+  // ===========================================================================
   void _applyFilters() {
     List<Product> list = List<Product>.from(products);
 
-    // CATEGORY FILTER
-    final catId = selectedCategoryId.value;
-    if (catId != null && catId.isNotEmpty) {
-      list = list.where((p) => p.categoryId == catId).toList();
+    final cat = selectedCategoryId.value;
+    if (cat != null && cat.isNotEmpty) {
+      list = list.where((p) => p.categoryId == cat).toList();
     }
 
-    // SEARCH FILTER
     if (_searchQuery.isNotEmpty) {
-      list = list.where((p) =>
-      p.name.toLowerCase().contains(_searchQuery) ||
-          (p.categoryName ?? "").toLowerCase().contains(_searchQuery) ||
-          p.barcode.toLowerCase().contains(_searchQuery)
-      ).toList();
+      list = list.where((p) {
+        final name = p.name.toLowerCase();
+        final catName = (p.categoryName ?? "").toLowerCase();
+        final barcode = p.barcode.toLowerCase();
+
+        return name.contains(_searchQuery) ||
+            catName.contains(_searchQuery) ||
+            barcode.contains(_searchQuery);
+      }).toList();
     }
 
     filteredProducts.assignAll(list);
   }
 
-  // ---------------------------------------------------------------------------
-  // ADD / UPDATE / DELETE
-  // ---------------------------------------------------------------------------
-  Future<void> addProduct(Product p) async {
+  // ===========================================================================
+  // CRUD: ADD PRODUCT
+  // ===========================================================================
+  Future<bool> addProduct(Product p) async {
     try {
-      await _service.addNewProduct(
+      final id = await _service.addNewProduct(
         name: p.name,
         categoryId: p.categoryId!,
         purchaseRate: p.purchaseRate,
@@ -102,28 +103,43 @@ class ProductController extends GetxController {
         barcode: p.barcode,
       );
 
-      await loadProducts();
+      if (id.isNotEmpty) {
+        await loadProducts();
+        return true;
+      }
+      return false;
     } catch (e) {
       print("❌ addProduct error: $e");
+      return false;
     }
   }
 
-  Future<void> updateProduct(String id, Product p) async {
+  // ===========================================================================
+  // UPDATE PRODUCT
+  // ===========================================================================
+  Future<bool> updateProduct(String id, Product p) async {
     try {
       await _service.updateProduct(id, p);
       await loadProducts();
+      return true;
     } catch (e) {
       print("❌ updateProduct error: $e");
+      return false;
     }
   }
 
-  Future<void> deleteProduct(String id) async {
+  // ===========================================================================
+  // DELETE PRODUCT
+  // ===========================================================================
+  Future<bool> deleteProduct(String id) async {
     try {
       await _service.deleteProduct(id);
       products.removeWhere((x) => x.id == id);
       _applyFilters();
+      return true;
     } catch (e) {
       print("❌ deleteProduct error: $e");
+      return false;
     }
   }
 }

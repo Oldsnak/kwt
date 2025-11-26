@@ -7,6 +7,8 @@ import '../../app/theme/colors.dart';
 import '../../core/constants/app_sizes.dart';
 import '../../core/utils/helpers.dart';
 import '../../core/utils/mobile_number_formatter.dart';
+import '../../core/models/customer_model.dart';
+import '../../core/services/customer_service.dart';
 
 class AddCustomerPage extends StatefulWidget {
   const AddCustomerPage({super.key});
@@ -16,13 +18,13 @@ class AddCustomerPage extends StatefulWidget {
 }
 
 class _AddCustomerPageState extends State<AddCustomerPage> {
-  final SupabaseClient client = Supabase.instance.client;
-
   final _formKey = GlobalKey<FormState>();
 
   final TextEditingController nameCtrl = TextEditingController();
   final TextEditingController phoneCtrl = TextEditingController();
   final TextEditingController addressCtrl = TextEditingController();
+
+  final CustomerService _customerService = CustomerService();
 
   bool saving = false;
 
@@ -31,21 +33,20 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
 
     setState(() => saving = true);
 
-    final name = nameCtrl.text.trim();
-    final phone = phoneCtrl.text.trim();
-    final address = addressCtrl.text.trim();
+    final customer = Customer(
+      name: nameCtrl.text.trim(),
+      phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
+      address: addressCtrl.text.trim(),
+      isActive: true,
+    );
 
     try {
-      final inserted = await client.from("customers").insert({
-        'name': name,
-        'phone': phone.isEmpty ? null : phone,
-        'address': address,
-      }).select().single();
+      await _customerService.addCustomer(customer);
 
       Get.snackbar("Success", "Customer Registered Successfully!",
           snackPosition: SnackPosition.BOTTOM);
 
-      Navigator.pop(context, inserted);
+      Navigator.pop(context, true);
     } catch (e) {
       Get.snackbar("Error", "Failed to register customer: $e");
     }
@@ -58,12 +59,6 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
     final dark = SHelperFunctions.isDarkMode(context);
 
     return Scaffold(
-      // appBar: AppBar(
-      //   title: const Text("Register Customer"),
-      //   backgroundColor: SColors.primary,
-      //   foregroundColor: Colors.white,
-      // ),
-
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(SSizes.defaultSpace),
@@ -72,9 +67,6 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
               key: _formKey,
               child: Column(
                 children: [
-
-                  // SizedBox(height: SHelperFunctions.screenHeight()/3.5,),
-                  // CUSTOMER NAME
                   TextFormField(
                     controller: nameCtrl,
                     textCapitalization: TextCapitalization.words,
@@ -92,7 +84,6 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
 
                   const SizedBox(height: SSizes.spaceBtwItems),
 
-                  // MOBILE NUMBER
                   TextFormField(
                     controller: phoneCtrl,
                     keyboardType: TextInputType.phone,
@@ -105,10 +96,8 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
                     ),
                   ),
 
-
                   const SizedBox(height: SSizes.spaceBtwItems),
 
-                  // ADDRESS
                   TextFormField(
                     controller: addressCtrl,
                     minLines: 1,
@@ -127,7 +116,6 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
 
                   const SizedBox(height: 40),
 
-                  // BUTTON
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -149,7 +137,6 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
                       ),
                     ),
                   ),
-
                 ],
               ),
             ),

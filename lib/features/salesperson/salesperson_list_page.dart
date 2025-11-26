@@ -44,17 +44,21 @@ class _SalesPersonListPageState extends State<SalesPersonListPage> {
   // -----------------------------------------
   Future<void> _block(String id) async {
     try {
-      await _client
-          .from("user_profiles")
-          .update({"is_active": false})
-          .eq("id", id);
-
-      Get.snackbar(
-        "Blocked",
-        "Salesperson has been temporarily blocked.",
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
+      final res = await _client.functions.invoke(
+        "toggle_salesperson_access",
+        body: {
+          "salesperson_id": id,
+          "status": false,       // 🔥 FIXED (was is_active)
+        },
       );
+
+      final data = res.data;
+      if (data == null || data['success'] != true) {
+        throw Exception(data?['error'] ?? "Failed to block salesperson.");
+      }
+
+      Get.snackbar("Blocked", "Salesperson blocked successfully.",
+          backgroundColor: Colors.orange, colorText: Colors.white);
 
       _load();
     } catch (e) {
@@ -67,17 +71,21 @@ class _SalesPersonListPageState extends State<SalesPersonListPage> {
   // -----------------------------------------
   Future<void> _unblock(String id) async {
     try {
-      await _client
-          .from("user_profiles")
-          .update({"is_active": true})
-          .eq("id", id);
-
-      Get.snackbar(
-        "Unblocked",
-        "Salesperson is active again.",
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
+      final res = await _client.functions.invoke(
+        "toggle_salesperson_access",
+        body: {
+          "salesperson_id": id,
+          "status": true,       // 🔥 FIXED (was is_active)
+        },
       );
+
+      final data = res.data;
+      if (data == null || data['success'] != true) {
+        throw Exception(data?['error'] ?? "Failed to unblock salesperson.");
+      }
+
+      Get.snackbar("Unblocked", "Salesperson unblocked successfully.",
+          backgroundColor: Colors.green, colorText: Colors.white);
 
       _load();
     } catch (e) {
@@ -94,25 +102,24 @@ class _SalesPersonListPageState extends State<SalesPersonListPage> {
         title: const Text("Confirm Delete"),
         content: const Text("Are you sure you want to delete this salesperson?"),
         actions: [
-          TextButton(
-            onPressed: () => Get.back(result: false),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () => Get.back(result: true),
-            child: const Text("Delete"),
-          ),
+          TextButton(onPressed: () => Get.back(result: false), child: const Text("Cancel")),
+          ElevatedButton(onPressed: () => Get.back(result: true), child: const Text("Delete")),
         ],
       ),
     );
 
     if (confirm == true) {
       try {
-        // Delete profile
-        await _client.from("user_profiles").delete().eq("id", id);
+        final res = await _client.functions.invoke(
+          "delete_salesperson",
+          body: {"salesperson_id": id},
+        );
 
-        // delete auth user
-        await _client.auth.admin.deleteUser(id);
+        final data = res.data;
+
+        if (data == null || data['success'] != true) {
+          throw Exception(data?['error'] ?? "Failed to delete salesperson.");
+        }
 
         Get.snackbar(
           "Deleted",
@@ -181,7 +188,6 @@ class _SalesPersonListPageState extends State<SalesPersonListPage> {
               itemCount: filtered.length,
               itemBuilder: (_, i) {
                 final sp = filtered[i];
-
                 final bool isActive = sp["is_active"] == true;
 
                 return Card(

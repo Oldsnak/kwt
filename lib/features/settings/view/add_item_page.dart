@@ -6,15 +6,36 @@ import 'package:get/get.dart';
 import '../../../core/controllers/add_product_controller.dart';
 import '../../../core/models/category_model.dart';
 
-class AddItemPage extends StatelessWidget {
-  AddItemPage({super.key});
+class AddNewItemPage extends StatefulWidget {
+  const AddNewItemPage({super.key});
 
-  final AddProductController controller = Get.put(AddProductController());
+  @override
+  State<AddNewItemPage> createState() => _AddNewItemPageState();
+}
+
+class _AddNewItemPageState extends State<AddNewItemPage> {
+  late final AddProductController controller;
 
   final TextEditingController nameCtrl = TextEditingController();
   final TextEditingController purchaseCtrl = TextEditingController();
   final TextEditingController sellingCtrl = TextEditingController();
   final TextEditingController qtyCtrl = TextEditingController(text: "0");
+
+  @override
+  void initState() {
+    super.initState();
+    // Controller init (if already exists, Get.put reuse karega)
+    controller = Get.put(AddProductController());
+  }
+
+  @override
+  void dispose() {
+    nameCtrl.dispose();
+    purchaseCtrl.dispose();
+    sellingCtrl.dispose();
+    qtyCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +109,9 @@ class AddItemPage extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: purchaseCtrl,
-                      keyboardType: TextInputType.number,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: _input("Purchase Rate"),
                     ),
                   ),
@@ -96,7 +119,9 @@ class AddItemPage extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: sellingCtrl,
-                      keyboardType: TextInputType.number,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: _input("Selling Rate"),
                     ),
                   ),
@@ -127,11 +152,16 @@ class AddItemPage extends StatelessWidget {
                         ? null
                         : () async {
                       final name = nameCtrl.text.trim();
+                      final purchaseText = purchaseCtrl.text.trim();
+                      final sellingText = sellingCtrl.text.trim();
+                      final qtyText = qtyCtrl.text.trim();
+
                       final purchase =
-                          double.tryParse(purchaseCtrl.text) ?? 0;
+                          double.tryParse(purchaseText.isEmpty ? '0' : purchaseText) ?? 0;
                       final selling =
-                          double.tryParse(sellingCtrl.text) ?? 0;
-                      final qty = int.tryParse(qtyCtrl.text) ?? 0;
+                          double.tryParse(sellingText.isEmpty ? '0' : sellingText) ?? 0;
+                      final qty =
+                          int.tryParse(qtyText.isEmpty ? '0' : qtyText) ?? 0;
 
                       if (name.isEmpty) {
                         Get.snackbar("Error", "Product name is required.");
@@ -142,8 +172,7 @@ class AddItemPage extends StatelessWidget {
                         return;
                       }
 
-                      final success =
-                      await controller.saveProduct(
+                      final success = await controller.saveProduct(
                         name: name,
                         purchaseRate: purchase,
                         sellingRate: selling,
@@ -162,7 +191,9 @@ class AddItemPage extends StatelessWidget {
                         : const Text(
                       "Save Product",
                       style: TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.bold),
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 );
