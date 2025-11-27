@@ -95,7 +95,7 @@ class ProductCardVertical extends StatelessWidget {
 
             /// ------------------ BOTTOM: Info rows ------------------
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: SSizes.lg),
+              padding: EdgeInsets.symmetric(horizontal: SSizes.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
